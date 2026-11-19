@@ -1,0 +1,15 @@
+[package]
+name = "misaki-probe"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+# Fit check for misaki-rs as the English G2P (no espeak: default-features = false).
+[dependencies]
+misaki-rs = { version = "=0.11.0", default-features = false }
+
+[profile.release]
+strip = true
+lto = "thin"
+
+[workspace]

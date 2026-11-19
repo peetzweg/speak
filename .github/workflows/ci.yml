@@ -1,0 +1,63 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Linux packages
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libasound2-dev pkg-config
+
+      - uses: Swatinem/rust-cache@v2
+
+      # espeak-ng 1.52.0 from its pinned source: the regression test compares against output made
+      # with 1.52, and Ubuntu 24.04 ships 1.51.
+      - name: Cache espeak-ng
+        uses: actions/cache@v4
+        with:
+          path: third_party/espeak-ng
+          key: espeak-ng-1.52.0-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/build-espeak.sh') }}
+      - name: Build espeak-ng
+        run: scripts/build-espeak.sh
+
+      - name: Cache the Kokoro model
+        uses: actions/cache@v4
+        with:
+          path: ~/speak-models
+          key: kokoro-v1.0-fp32-7d5df8ec
+
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets --locked -- -D warnings
+
+      - name: Download the model (cache miss only)
+        run: |
+          if [ ! -f ~/speak-models/models/kokoro-v1.0.onnx ]; then
+            SPEAK_HOME=~/speak-models cargo run --locked -q -- models download kokoro
+          fi
+
+      - name: Test
+        run: |
+          export SPEAK_TEST_MODELS=~/speak-models/models SPEAK_ESPEAK="$PWD/third_party/espeak-ng/bin/espeak-ng"
+          cargo test --locked

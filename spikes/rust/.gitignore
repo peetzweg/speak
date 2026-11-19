@@ -1,0 +1,4 @@
+target/
+/out
+/third_party
+/.docker-cache

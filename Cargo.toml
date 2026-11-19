@@ -1,0 +1,38 @@
+[package]
+name = "speak"
+version = "0.1.0"
+edition = "2024"
+description = "say(1), but with the best open text-to-speech model, running on your own machine"
+authors = ["Philip Poloczek <phil.czek@gmail.com>"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/peetzweg/speak"
+readme = "README.md"
+keywords = ["tts", "text-to-speech", "say", "kokoro", "cli"]
+categories = ["command-line-utilities", "multimedia::audio"]
+exclude = ["/spikes", "/docs", "/research", "/out", "/third_party", "/.docker-cache"]
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4.6", features = ["derive"] }
+crossterm = "0.29"
+# English G2P (misaki's lexicons, POS tagger, number reading). No espeak: speak plugs in the
+# `espeak-ng` program as a separate process for unknown words.
+misaki-rs = { version = "=0.11.0", default-features = false }
+# ONNX Runtime 1.31, linked statically from pyke's prebuilt archive (fetched and hash-checked at
+# build time). Pinned: the 2.0 release candidates still change API between versions.
+ort = { version = "=2.0.0-rc.15", default-features = false, features = ["std", "download-binaries", "tls-rustls", "api-24"] }
+regex = "1"
+rodio = { version = "0.23", default-features = false, features = ["playback"] }
+sha2 = "0.10"
+ureq = { version = "3", default-features = false, features = ["rustls"] }
+zip = { version = "9", default-features = false }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
+panic = "abort"
+
+# misaki-rs parses ~12 MB of embedded JSON at start-up; keep dependencies fast in test builds.
+[profile.dev.package."*"]
+opt-level = 2

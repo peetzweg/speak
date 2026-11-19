@@ -1,0 +1,9 @@
+Hello Philip. This is the Go spike.
+"Quoted," she said (quietly) — then left… Really?! Yes; no: maybe.
+...leading dots and trailing marks!!!
+Dr. Smith paid $4.99 for 3 apples at 10:30 a.m. on 2026-11-19, i.e. 15% off.
+Ünïcödé café naïve façade; Zürich — 東京.
+  Leading and trailing whitespace with	tabs	inside.  
+[brackets] {braces} «guillemets» “smart quotes” ¡Hola! ¿Qué?
+A,B,C;D:E.F!G?H
+Wait... what?! No — never.

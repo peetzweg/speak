@@ -1,0 +1,35 @@
+speak
+Copyright (c) 2026 Philip Poloczek
+Licensed under either of the Apache License, Version 2.0 (LICENSE-APACHE) or the MIT license
+(LICENSE-MIT), at your option.
+
+This product builds on the following work.
+
+Kokoro-82M
+  Text-to-speech model by hexgrad, Apache License 2.0.
+  https://huggingface.co/hexgrad/Kokoro-82M
+  speak downloads the ONNX export of the model and its voices from the kokoro-onnx project at
+  first run; the weights are not part of this repository or of speak's binaries.
+
+kokoro-onnx (https://github.com/thewh1teagle/kokoro-onnx), MIT License, Copyright (c) thewh1teagle
+  speak's Kokoro backend follows kokoro-onnx 0.4.7's inference pipeline (phoneme batching,
+  style selection, silence trimming), and src/vocab.rs is generated from its config.json.
+
+misaki (https://github.com/hexgrad/misaki), Apache License 2.0, by hexgrad
+  The espeak-ng to misaki phoneme conversion tables in src/g2p/espeak.rs are taken from
+  misaki 0.9.4 (misaki/espeak.py).
+
+misaki-rs (https://github.com/MicheleYin/misaki-rs), MIT License
+  English grapheme-to-phoneme conversion, including misaki's lexicons, linked into speak.
+
+ONNX Runtime (https://github.com/microsoft/onnxruntime), MIT License, Copyright (c) Microsoft
+  Corporation. Linked statically into speak's binary (prebuilt by pyke.io for the `ort` crate);
+  ONNX Runtime's own third-party notices apply to binaries that contain it.
+
+librosa (https://github.com/librosa/librosa), ISC License
+  src/trim.rs implements the silence trimming of librosa.effects.trim, as kokoro-onnx uses it.
+
+espeak-ng (https://github.com/espeak-ng/espeak-ng), GNU GPL version 3 or later
+  speak never links or loads espeak-ng. When available, it runs the separate `espeak-ng`
+  program for words its English lexicons don't know and for non-English voices.
+  scripts/build-espeak.sh builds espeak-ng from its unmodified release source for development.

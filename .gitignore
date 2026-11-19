@@ -1,0 +1,13 @@
+/target
+/out
+/third_party
+/.docker-cache
+# spike build outputs (the spikes are kept as reference source only)
+spikes/*/target
+spikes/*/out
+spikes/*/bin
+spikes/*/lib
+spikes/*/third_party
+spikes/*/.docker-cache
+spikes/rust/experiments/*/target
+spikes/*/share
