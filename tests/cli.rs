@@ -276,3 +276,37 @@ fn voices_and_voice_selection() {
     let o = with_config(&[("SPEAK_VOICE", "xx_from_env")], &["-v", "bm_george"]);
     assert!(o.status.success(), "{}", stderr(&o));
 }
+
+/// A release archive unpacked deep in a directory tree still runs its bundled espeak-ng, which
+/// silently cuts data paths at 160 bytes.
+#[cfg(unix)]
+#[test]
+fn bundled_espeak_works_from_a_long_path() {
+    let Some(es) = espeak() else {
+        eprintln!("skipping: espeak-ng not found");
+        return;
+    };
+    let data = es.parent().and_then(|p| p.parent()).map(|p| p.join("share/espeak-ng-data"));
+    let Some(data) = data.filter(|d| d.is_dir()) else {
+        eprintln!("skipping: no share/espeak-ng-data next to {}", es.display());
+        return;
+    };
+    // libexec/speak itself fits (150 bytes) but libexec/speak/espeak-ng-data doesn't: espeak-ng
+    // then took libexec/speak for its data directory and failed.
+    let base = tmpdir("bundle");
+    let pad = 150 - "/libexec/speak".len() - base.as_os_str().len() - 1;
+    let prefix = base.join("x".repeat(pad));
+    std::fs::create_dir_all(prefix.join("bin")).unwrap();
+    std::fs::create_dir_all(prefix.join("libexec/speak")).unwrap();
+    // A hard link: speak resolves symlinks to find the libexec next to it.
+    std::fs::hard_link(env!("CARGO_BIN_EXE_speak"), prefix.join("bin/speak")).unwrap();
+    symlink(&es, &prefix.join("libexec/speak/espeak-ng"));
+    std::os::unix::fs::symlink(&data, prefix.join("libexec/speak/espeak-ng-data")).unwrap();
+
+    let mut cmd = std::process::Command::new(prefix.join("bin/speak"));
+    isolate(&mut cmd, None);
+    cmd.env_remove("SPEAK_ESPEAK").env("PATH", "/usr/bin:/bin");
+    let o = run(cmd.args(["--analyze", "-v", "ef_dora", "hola"]));
+    assert!(o.status.success(), "{}", stderr(&o));
+    assert_eq!(phonemes(&o), "ˈola");
+}

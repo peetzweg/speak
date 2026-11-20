@@ -28,6 +28,20 @@ pub struct Program {
     pub data_parent: Option<PathBuf>,
 }
 
+impl Program {
+    /// A command for this espeak-ng. With its own data directory it runs from there with
+    /// `--path=.`: espeak-ng keeps the data path in a 160-byte buffer and silently cuts a longer
+    /// one, so an archive unpacked deep in a directory tree would otherwise fail. Paths in the
+    /// arguments must therefore be absolute.
+    pub fn command(&self) -> Command {
+        let mut cmd = Command::new(&self.path);
+        if let Some(d) = &self.data_parent {
+            cmd.current_dir(d).arg("--path=.");
+        }
+        cmd
+    }
+}
+
 /// Find espeak-ng: a copy bundled next to speak (`<exe>/../libexec/speak/espeak-ng`, data beside
 /// it), then `$SPEAK_ESPEAK`, then `PATH`. `$SPEAK_ESPEAK_DATA` (an `espeak-ng-data` directory)
 /// overrides the data for any of them.
@@ -76,11 +90,8 @@ impl Subprocess {
     /// `tie`: join the letters of multi-letter phonemes with U+0361 instead of separating every
     /// phoneme with `_` (phonemizer's two output modes).
     pub fn spawn(program: &Program, lang: &str, tie: bool) -> Result<Self> {
-        let mut cmd = Command::new(&program.path);
+        let mut cmd = program.command();
         cmd.args(["-q", "--ipa", if tie { "--tie" } else { "--sep=_" }, "-v", lang]);
-        if let Some(d) = &program.data_parent {
-            cmd.arg(format!("--path={}", d.display()));
-        }
         let mut child = cmd
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())

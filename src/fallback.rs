@@ -13,10 +13,7 @@ pub fn speak(text: &str, rate: Option<f32>, output: Option<&Path>) -> Result<()>
         return say(text, rate, output);
     }
     if let Some(espeak) = crate::g2p::espeak::find_program() {
-        let mut cmd = Command::new(&espeak.path);
-        if let Some(d) = &espeak.data_parent {
-            cmd.arg(format!("--path={}", d.display()));
-        }
+        let mut cmd = espeak.command();
         if let Some(r) = rate {
             cmd.arg(format!("-s{}", r.round() as u32));
         }
@@ -24,7 +21,7 @@ pub fn speak(text: &str, rate: Option<f32>, output: Option<&Path>) -> Result<()>
             if !out.extension().is_some_and(|e| e.eq_ignore_ascii_case("wav")) {
                 bail!("the fallback voice can only write .wav files");
             }
-            cmd.arg("-w").arg(out);
+            cmd.arg("-w").arg(std::path::absolute(out)?); // the command may run in another directory
         }
         return run(cmd, text);
     }
