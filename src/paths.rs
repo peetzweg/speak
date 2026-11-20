@@ -44,6 +44,12 @@ pub fn cache_dir() -> PathBuf {
     }
 }
 
+/// Where running speak processes meet (the playback queue): `$XDG_RUNTIME_DIR/speak`, else the
+/// cache directory.
+pub fn runtime_dir() -> PathBuf {
+    env_path("XDG_RUNTIME_DIR").map_or_else(cache_dir, |p| p.join("speak"))
+}
+
 /// Is `name` an executable on `PATH`?
 pub fn which(name: &str) -> Option<PathBuf> {
     let file = format!("{name}{}", std::env::consts::EXE_SUFFIX);

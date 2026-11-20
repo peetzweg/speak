@@ -56,6 +56,7 @@ fn production_flags_are_checked_first() {
         &["--loudness", "-16", "hi"],
         &["--loudness", "3", "-o", "x.wav", "hi"],
         &["--pauses", "soon", "hi"],
+        &["--background", "--manifest", "-", "hi"],
     ] {
         let o = run(speak(None).args(args));
         assert_eq!(o.status.code(), Some(2), "{args:?}: {}", stderr(&o));
@@ -205,6 +206,12 @@ fn manifest_on_stdout_and_custom_pauses() {
     assert_eq!(s(&p[0], 1).0 - s(&p[0], 0).1, 300 * 24);
     assert_eq!(s(&p[1], 0).0 - s(&p[0], 1).1, 1000 * 24);
     assert!(p[0].get("file").is_none());
+
+    // Played rather than written: the manifest still comes, with no audio file named.
+    let o = run(speak(Some(&home)).env("SPEAK_AUDIO", "null").args(["--manifest", "-", "Hi."]));
+    assert!(o.status.success(), "{}", stderr(&o));
+    let m: Value = serde_json::from_str(&stdout(&o)).unwrap();
+    assert!(m["audio"].is_null() && m["paragraphs"].as_array().unwrap().len() == 1);
 }
 
 #[test]

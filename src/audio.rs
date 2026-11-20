@@ -6,7 +6,8 @@ use std::num::NonZero;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::OnceLock;
-use std::sync::mpsc::Receiver;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
@@ -14,6 +15,13 @@ use rodio::Source;
 
 /// When the output device first pulled one of our samples (for `--timing`).
 pub static FIRST_SAMPLE_AT: OnceLock<Instant> = OnceLock::new();
+
+/// Set (by `speak stop`'s signal) to cut playback short.
+pub static STOP: AtomicBool = AtomicBool::new(false);
+
+fn stopped() -> bool {
+    STOP.load(Ordering::SeqCst)
+}
 
 struct Pcm {
     data: std::vec::IntoIter<f32>,
@@ -44,16 +52,63 @@ impl Source for Pcm {
     }
 }
 
-/// Play chunks as they arrive (synthesis runs ahead on another thread).
+/// Play chunks as they arrive (synthesis runs ahead on another thread), until they run out or
+/// [`STOP`] is set. `SPEAK_AUDIO=null` plays to nowhere, in real time (tests, machines without
+/// sound); `SPEAK_DEBUG` logs when playback starts and ends.
 pub fn play(rx: Receiver<Vec<f32>>, rate: u32) -> Result<()> {
+    let debug = std::env::var_os("SPEAK_DEBUG").is_some();
+    let unix_ms = || std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis());
+    if debug {
+        eprintln!("speak: playback starts at {}", unix_ms());
+    }
+    let result = if std::env::var_os("SPEAK_AUDIO").is_some_and(|v| v == "null") { play_null(rx, rate) } else { play_device(rx, rate) };
+    if debug {
+        let now = unix_ms();
+        let first = FIRST_SAMPLE_AT.get().map_or(now, |t| now.saturating_sub(t.elapsed().as_millis()));
+        eprintln!("speak: playback ends at {now}, first sound at {first}{}", if stopped() { " (stopped)" } else { "" });
+    }
+    result
+}
+
+fn play_null(rx: Receiver<Vec<f32>>, rate: u32) -> Result<()> {
+    let tick = Duration::from_millis(10);
+    let mut done = Instant::now();
+    while !stopped() {
+        match rx.recv_timeout(tick) {
+            Ok(samples) => {
+                let now = Instant::now();
+                FIRST_SAMPLE_AT.get_or_init(|| now);
+                done = done.max(now) + Duration::from_secs_f64(samples.len() as f64 / f64::from(rate));
+            }
+            Err(RecvTimeoutError::Timeout) => {}
+            Err(RecvTimeoutError::Disconnected) => break,
+        }
+    }
+    while Instant::now() < done && !stopped() {
+        std::thread::sleep(tick);
+    }
+    Ok(())
+}
+
+fn play_device(rx: Receiver<Vec<f32>>, rate: u32) -> Result<()> {
     let mut sink = rodio::DeviceSinkBuilder::open_default_sink().context("no audio output device")?;
     sink.log_on_drop(false);
     let player = rodio::Player::connect_new(sink.mixer());
-    for samples in rx {
-        let len = samples.len();
-        player.append(Pcm { data: samples.into_iter(), rate, len });
+    let tick = Duration::from_millis(20);
+    while !stopped() {
+        match rx.recv_timeout(tick) {
+            Ok(samples) => {
+                let len = samples.len();
+                player.append(Pcm { data: samples.into_iter(), rate, len });
+            }
+            Err(RecvTimeoutError::Timeout) => {}
+            Err(RecvTimeoutError::Disconnected) => break,
+        }
     }
-    player.sleep_until_end();
+    while !player.empty() && !stopped() {
+        std::thread::sleep(tick);
+    }
+    player.stop();
     Ok(())
 }
 

@@ -30,6 +30,10 @@ zip = { version = "9", default-features = false }
 [dev-dependencies]
 serde_json = "1" # reading the timing manifest back in tests
 
+[target.'cfg(unix)'.dependencies]
+# `speak stop` (signals) and `--background` (a new session for the detached speaker).
+libc = "0.2"
+
 [profile.release]
 lto = "thin"
 codegen-units = 1

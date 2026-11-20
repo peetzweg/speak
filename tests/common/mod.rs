@@ -75,6 +75,11 @@ pub fn isolate(cmd: &mut Command, home: Option<&Path>) {
         // Shared, so the model files are hashed once per test run rather than once per test.
         .env("XDG_CACHE_HOME", PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("cache"))
         .env("SPEAK_NO_DOWNLOAD", "1")
+        // Its own playback queue, unless a test shares one between processes on purpose.
+        .env("XDG_RUNTIME_DIR", scratch.join("run"))
+        .env_remove("SPEAK_QUEUED_AT")
+        .env_remove("SPEAK_AUDIO")
+        .env_remove("SPEAK_DEBUG")
         .env_remove("SPEAK_VOICE")
         .env_remove("SPEAK_MODEL")
         .env_remove("SPEAK_ESPEAK_DATA")

@@ -119,3 +119,11 @@ pub fn open(model: &Model, files: Files, voice: &str, mode: Mode, marks: bool) -
         other => anyhow::bail!("unknown backend '{other}'"),
     }
 }
+
+/// A model's voices, without loading the model.
+pub fn voices(model: &Model, files: &Files) -> Result<Vec<Voice>> {
+    match model.backend {
+        "kokoro" => crate::kokoro::voices(&files.voices),
+        other => anyhow::bail!("unknown backend '{other}'"),
+    }
+}

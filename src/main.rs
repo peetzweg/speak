@@ -18,6 +18,7 @@ mod npz;
 mod onnx;
 mod paths;
 mod picker;
+mod queue;
 mod render;
 mod script;
 mod text;
@@ -49,10 +50,15 @@ Text: a blank line starts a paragraph. Embedded commands as in say: [[slnc 500]]
 [[rate 220]] speaks at 220 words per minute; [[voice bm_george]] switches voice for what follows
 (dialogue), [[rset]] goes back. Other [[...]] commands are skipped, never read out.
 
+Agents: speak waits its turn rather than talk over another speak (first come, first served; -o
+never waits). --background returns at once. speak stop ends the speech playing now (exit 0 for
+the stopped one). stdout stays empty unless you ask for output (--manifest -, --analyze, -v '?').
+
 Productions:
   speak -f script.txt -o voice.wav --subtitles voice.srt --manifest voice.json --loudness -16
 
 More:
+  speak stop [--all]               stop the speech playing now (--all: and everything waiting)
   speak voices                     pick the default voice (plain list when not on a terminal)
   speak models                     list models; speak models download|rm NAME
   speak lexicon add WORD SPOKEN…   pronunciations; also rm WORD | list [--builtin] | try WORD | path
@@ -109,6 +115,9 @@ struct Args {
     /// Pause after a sentence, and after a paragraph, in ms [default: 120,600]
     #[arg(long, value_name = "MS[,MS]", value_parser = parse_pauses, help_heading = "Productions")]
     pauses: Option<Pauses>,
+    /// Speak detached and return at once (bad flags, text or voices still fail here)
+    #[arg(long, help_heading = "Agents")]
+    background: bool,
 
     // say(1) flags that are accepted and ignored, so scripts written for say keep working.
     #[arg(short = 'a', long = "audio-device", hide = true)]
@@ -162,6 +171,7 @@ fn main() -> ExitCode {
         Some("lexicon" | "lex") => lexicon_cmd(rest),
         Some("voices") => voices_cmd(&argv[1..]),
         Some("models") => models_cmd(rest),
+        Some("stop") => stop_cmd(&argv[1..]),
         _ => parse::<Args>(&argv).and_then(speak),
     };
     match result {
@@ -237,6 +247,9 @@ fn check_flags(a: &Args) -> Result<(), Exit> {
             return Err(exit(2, format!("--loudness {l}: expected LUFS between -70 and 0, e.g. -16")));
         }
     }
+    if a.background && a.manifest.as_deref().is_some_and(|m| m.as_os_str() == "-") {
+        return Err(exit(2, "--manifest - prints to stdout, which --background leaves behind: give a file"));
+    }
     Ok(())
 }
 
@@ -250,6 +263,7 @@ fn check_voices(script: &Script, available: &[backend::Voice]) -> Result<(), Exi
 
 fn speak(a: Args) -> Result<(), Exit> {
     let t0 = Instant::now();
+    let started = queue::now();
     let home = paths::data_home();
     let cfg = Config::load(&paths::config_file());
     let model = model_for(a.model.clone(), &cfg, &home)?;
@@ -274,15 +288,21 @@ fn speak(a: Args) -> Result<(), Exit> {
     let wpm = a.rate.or(a.speed.map(|s| s * 175.0));
     let script = script::parse(&source, &voice, speed);
     let out = a.output_file.as_deref().map(audio::file_out).transpose().map_err(|e| exit(1, format!("{e:#}")))?;
+    if a.background {
+        return background(&a, &source, &script, model, &home, &voice, started);
+    }
     // Subtitles, manifests, split files and loudness need the model itself, not the system voice.
     let production = a.subtitles.is_some() || a.manifest.is_some() || a.split.is_some() || a.loudness.is_some();
     let writing = out.is_some() || a.split.is_some();
+    // Get in line before the model loads, so turns follow the order speak was started in.
+    let ticket = if writing { None } else { queue::Ticket::take().ok() };
 
     // Without the model, or without espeak-ng where a voice needs it, the system voice speaks.
     let say_instead = |why: anyhow::Error| {
         if production {
             return Err(why.into());
         }
+        let _turn = ticket.as_ref().and_then(|t| t.wait_turn().ok());
         speak_with_system_voice(&why, &markup, wpm, a.output_file.as_deref())
     };
     let voices = script.voices();
@@ -307,7 +327,8 @@ fn speak(a: Args) -> Result<(), Exit> {
     let rate = be.info().sample_rate;
     let settings = render::Settings { pauses: a.pauses.unwrap_or_default(), cues: a.subtitles.is_some() };
     let (tx, rx) = mpsc::sync_channel::<Vec<f32>>(8);
-    // Synthesis runs ahead on its own thread; playback starts with the first sentence.
+    // Synthesis runs ahead on its own thread; playback starts with the first sentence (or, when
+    // another speak has the speakers, the moment they are free).
     let synth = std::thread::spawn(move || {
         let (result, timeline, progress) = render::render(&mut *be, &script, &lexicons, &settings, t0, &tx);
         drop(tx);
@@ -319,7 +340,12 @@ fn speak(a: Args) -> Result<(), Exit> {
         pcm = rx.iter().flatten().collect();
         Ok(())
     } else {
-        audio::play(rx, rate)
+        let _turn = ticket.as_ref().and_then(|t| t.wait_turn().ok());
+        let played = audio::play(rx, rate);
+        if audio::STOP.load(std::sync::atomic::Ordering::SeqCst) {
+            queue::exit_stopped(); // `speak stop`
+        }
+        played
     };
     let (synthesized, mut timeline, t) = synth.join().map_err(|_| exit(1, "synthesis thread panicked"))?;
     if let Err(e) = synthesized {
@@ -329,6 +355,7 @@ fn speak(a: Args) -> Result<(), Exit> {
         }
         return Err(e.into());
     }
+    drop(ticket);
     played.map_err(|e| exit(1, format!("{e:#}")))?;
     let loudness = write_audio(&a, out.as_ref(), &mut pcm, &mut timeline)?;
     write_timings(&a, &timeline, loudness.as_ref())?;
@@ -384,9 +411,48 @@ fn write_timings(a: &Args, t: &Timeline, loudness: Option<&Loudness>) -> Result<
     Ok(())
 }
 
+/// `--background`: check what can be checked here, then hand the text to a detached speak.
+fn background(a: &Args, text: &str, script: &Script, model: &'static Model, home: &Path, voice: &str, started: u128) -> Result<(), Exit> {
+    if models::is_installed(home, model)
+        && let Ok(available) = backend::voices(model, &models::files(home, model))
+    {
+        check_voices(script, &available)?;
+    }
+    let mut args: Vec<OsString> = ["-f", "-", "-v", voice, "-m", model.name].map(OsString::from).to_vec();
+    let mut flag = |name: &str, value: Option<OsString>| {
+        if let Some(v) = value {
+            args.push(name.into());
+            args.push(v);
+        }
+    };
+    flag("--rate", a.rate.map(|r| r.to_string().into()));
+    flag("--speed", a.speed.map(|s| s.to_string().into()));
+    flag("--output-file", a.output_file.clone().map(Into::into));
+    flag("--subtitles", a.subtitles.clone().map(Into::into));
+    flag("--manifest", a.manifest.clone().map(Into::into));
+    flag("--split", a.split.clone().map(Into::into));
+    flag("--loudness", a.loudness.map(|l| l.to_string().into()));
+    flag("--pauses", a.pauses.map(|p| format!("{},{}", p.sentence_ms, p.paragraph_ms).into()));
+    flag("--g2p", a.g2p.clone().map(Into::into));
+    queue::spawn_background(&args, text, started).map_err(|e| exit(1, format!("could not start speaking in the background: {e}")))
+}
+
 fn speak_with_system_voice(why: &anyhow::Error, markup: &str, wpm: Option<f32>, out: Option<&Path>) -> Result<(), Exit> {
     eprintln!("speak: {why:#}; using the system voice");
     fallback::speak(&lexicon::plain(markup), wpm, out).map_err(|e| exit(3, format!("the system voice failed too: {e:#}")))
+}
+
+#[derive(Parser, Debug)]
+#[command(name = "speak stop", bin_name = "speak stop", about = "Stop the speech playing now. Files being written (-o) are never stopped.")]
+struct StopArgs {
+    /// Also stop every speak waiting for its turn
+    #[arg(short, long)]
+    all: bool,
+}
+
+fn stop_cmd(argv: &[OsString]) -> Result<(), Exit> {
+    let a: StopArgs = parse(argv)?;
+    queue::stop(a.all).map(|_| ()).map_err(|e| exit(1, format!("{}: {e}", queue::dir().display())))
 }
 
 #[derive(Default)]

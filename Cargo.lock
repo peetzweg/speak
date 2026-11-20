@@ -1364,6 +1364,7 @@ dependencies = [
  "anyhow",
  "clap",
  "crossterm",
+ "libc",
  "misaki-rs",
  "ort",
  "regex",

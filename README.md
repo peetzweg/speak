@@ -44,6 +44,23 @@ Exit codes: 0 ok, 1 synthesis or audio failure, 2 usage, 3 model or espeak-ng mi
 4 unknown voice. If the model can't be used, speak says the text with the system voice (macOS
 `say`; `espeak-ng` or `spd-say` on Linux), notes it in one line on stderr, and exits 0.
 
+## For agents
+
+```sh
+speak "Build finished: 3 tests failed"     # waits its turn if another speak is talking
+speak --background "Deploy is done"         # returns at once and speaks detached
+speak stop                                  # end the speech playing now
+speak stop --all                            # ... and everything waiting for its turn
+```
+
+Several agent sessions can call `speak` at once: the processes take turns at the speakers, first
+come first served, instead of talking over each other. A waiting speak synthesises while it
+waits, so it starts the moment its turn comes; writing a file (`-o`) never waits.
+`--background` checks the flags, the text and the voices before it returns (exit 2 or 4), then
+speaks detached. A speak ended by `speak stop` exits 0. stdout stays empty unless you ask for
+output (`--manifest -`, `--analyze`, `-v '?'`). The queue is a directory of OS-locked files in
+`$XDG_RUNTIME_DIR/speak` (else the cache directory), so a speak that crashes blocks nobody.
+
 ## For productions
 
 ```sh
@@ -192,7 +209,8 @@ scripts/export-g2p.py             # rebuild assets/g2p/*.onnx (pinned Python env
 ```
 
 Tests that need the model use `$SPEAK_TEST_MODELS` (default `~/.local/share/speak/models`)
-read-only and skip when it is missing. `SPEAK_TEST_EXACT_AUDIO=1` also checks that the audio
+read-only and skip when it is missing. `SPEAK_AUDIO=null` plays to nowhere in real time (the queue
+tests use it), and `SPEAK_DEBUG=1` also logs places in line and playback times. `SPEAK_TEST_EXACT_AUDIO=1` also checks that the audio
 matches kokoro-onnx's to within a 16-bit step, which holds only on the machine that recorded the
 reference (an Apple M5 Pro). `spikes/` holds the Go and Rust prototypes this grew from.
 

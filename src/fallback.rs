@@ -58,8 +58,11 @@ fn say(text: &str, rate: Option<f32>, output: Option<&Path>) -> Result<()> {
 fn run(mut cmd: Command, text: &str) -> Result<()> {
     let program = cmd.get_program().to_string_lossy().into_owned();
     let mut child = cmd.stdin(Stdio::piped()).stdout(Stdio::null()).spawn().with_context(|| format!("running {program}"))?;
+    crate::queue::set_child(Some(child.id())); // `speak stop` stops it too
     child.stdin.take().context("stdin")?.write_all(text.as_bytes())?;
-    if !child.wait()?.success() {
+    let status = child.wait();
+    crate::queue::set_child(None);
+    if !status?.success() {
         bail!("{program} failed");
     }
     Ok(())
