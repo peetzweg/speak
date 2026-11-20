@@ -129,7 +129,7 @@ impl Renderer<'_> {
                         let Some(begun) = begun else { continue };
                         self.timeline.sentences.push(Sentence {
                             paragraph,
-                            text: s.text.clone(),
+                            text: crate::lexicon::plain(&s.text),
                             voice: s.voice.clone(),
                             start: begun,
                             end: self.pos,

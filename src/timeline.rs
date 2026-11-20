@@ -55,7 +55,8 @@ pub struct Timeline {
 /// Cue boundaries from where each part after the first began (`marks`), clamped into the sentence;
 /// a part that took no time is shown with the next one (or the one before, at the end).
 pub fn cues(parts: &[String], marks: &[usize], start: usize, end: usize) -> Vec<Cue> {
-    let wrap = crate::script::wrap;
+    // Shown as written, minus inline pronunciations: `[Anouk](/ɑnˈuk/)` is displayed as `Anouk`.
+    let wrap = |t: &str| crate::script::wrap(&crate::lexicon::plain(t));
     if parts.len() < 2 || marks.len() + 1 != parts.len() {
         return vec![Cue { text: wrap(&parts.join(" ")), start, end }];
     }
@@ -236,5 +237,11 @@ mod tests {
         assert_eq!(c.iter().map(|c| (c.text.as_str(), c.start, c.end)).collect::<Vec<_>>(), [("a, b.", 0, 900)]);
         // Wrong number of marks: one cue for the sentence.
         assert_eq!(cues(&parts(&["a,", "b."]), &[], 0, 900).len(), 1);
+    }
+
+    #[test]
+    fn cues_hide_inline_pronunciations() {
+        let parts = ["[Anouk](/ɑnˈuk/) fixed it.".to_string()];
+        assert_eq!(cues(&parts, &[], 0, 100)[0].text, "Anouk fixed it.");
     }
 }
