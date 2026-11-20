@@ -70,7 +70,6 @@ Set Shell bash
 Set Framerate 30
 Set TypingSpeed ${TYPING}s
 Set Theme "Catppuccin Mocha"
-Set WindowBar Colorful
 Set CursorBlink false
 Hide
 Type@1ms \`export PS1='$PROMPT' HISTFILE=/dev/null; speak() { case " \$* " in *' --background '*) return;; esac; sleep \$(echo "$LATENCY + \$(cat $OUT/clips/\$(printf '%s' "\${@: -1}" | shasum | cut -c1-12).dur)" | bc); }; clear\`
