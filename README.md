@@ -68,6 +68,11 @@ speak -f script.txt -o voice.wav --subtitles voice.srt --manifest voice.json --l
 speak -f slides.txt --split slides --manifest slides.json --loudness -16   # slides/001.wav, 002.wav, ...
 ```
 
+For agents, [`skills/speak-voiceover`](skills/speak-voiceover/SKILL.md) is a skill with the whole
+recipe: writing for the ear, the pronunciation pass, rendering, and assembling slides, narration,
+subtitles and chapters into an MP4 (`scripts/assemble.py`). For Claude Code:
+`ln -s "$PWD/skills/speak-voiceover" ~/.claude/skills/speak-voiceover`.
+
 A script is plain text. A blank line starts a paragraph, and say's embedded commands work:
 
 ```text
