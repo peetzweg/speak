@@ -21,7 +21,7 @@ class Speak < Formula
   homepage "https://github.com/$REPO"
   version "$VERSION"
   # speak is MIT OR Apache-2.0; the bundled espeak-ng is GPL-3.0-or-later.
-  license all_of: [any_of: ["MIT", "Apache-2.0"], "GPL-3.0-or-later"]
+  license all_of: [{ any_of: ["MIT", "Apache-2.0"] }, "GPL-3.0-or-later"]
 
   on_macos do
     depends_on arch: :arm64
