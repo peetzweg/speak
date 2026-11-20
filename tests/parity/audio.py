@@ -2,6 +2,7 @@
 
 Usage: python -I audio.py "TEXT" out/parity-py.wav out/parity-rs.wav [more.wav ...]
 """
+import os
 import sys
 
 import numpy as np
@@ -9,7 +10,7 @@ import soundfile as sf
 from kokoro_onnx import Kokoro
 from kokoro_onnx.config import EspeakConfig
 
-H = "~/.local/share/speak"
+H = os.path.expanduser("~/.local/share/speak")
 k = Kokoro(f"{H}/models/kokoro-v1.0.onnx", f"{H}/models/voices-v1.0.bin", espeak_config=EspeakConfig(data_path=f"{H}/es"))
 audio, sr = k.create(sys.argv[1], voice="af_heart", speed=1.0, lang="en-us")
 sf.write(sys.argv[2], audio, sr)

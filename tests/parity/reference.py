@@ -5,13 +5,14 @@ Usage: ~/.local/share/speak/venv/bin/python -I reference.py corpus.txt
 A literal backslash-n in a corpus line becomes a newline. No lexicon is applied (kokoro-onnx has none).
 """
 import json
+import os
 import sys
 
 from kokoro_onnx import Kokoro
 from kokoro_onnx.config import EspeakConfig
 from kokoro_onnx.tokenizer import Tokenizer
 
-tok = Tokenizer(EspeakConfig(data_path="~/.local/share/speak/es"))
+tok = Tokenizer(EspeakConfig(data_path=os.path.expanduser("~/.local/share/speak/es")))
 
 
 def analyze(text):
