@@ -44,6 +44,60 @@ Exit codes: 0 ok, 1 synthesis or audio failure, 2 usage, 3 model or espeak-ng mi
 4 unknown voice. If the model can't be used, speak says the text with the system voice (macOS
 `say`; `espeak-ng` or `spd-say` on Linux), notes it in one line on stderr, and exits 0.
 
+## For productions
+
+```sh
+speak -f script.txt -o voice.wav --subtitles voice.srt --manifest voice.json --loudness -16
+speak -f slides.txt --split slides --manifest slides.json --loudness -16   # slides/001.wav, 002.wav, ...
+```
+
+A script is plain text. A blank line starts a paragraph, and say's embedded commands work:
+
+```text
+[[voice af_heart]]Welcome back. Here is what happened this week.
+
+[[voice bm_george]]Thanks. The deploy failed on Tuesday. [[slnc 800]] It works again.
+
+[[rset]][[rate 160]]That's all for today.
+```
+
+- `[[slnc N]]` is N ms of silence, in place of the automatic pause where it stands; `[[rate N]]`
+  is N words per minute from there on (`+N`/`-N`: relative); `[[voice NAME]]` (speak's own)
+  switches voice; `[[rset]]` goes back to the command line's voice and rate. Other `[[...]]`
+  commands are skipped, never read out.
+- Pauses are 120 ms after a sentence and 600 ms after a paragraph; `--pauses 300,1000` changes them.
+- `--subtitles FILE.srt` (or `.vtt`): one cue per sentence. A sentence that doesn't fit in two
+  lines of 42 characters is split at clause boundaries. Cue times are where the audio is, to the
+  millisecond: inside a sentence they come from Kokoro's own predicted durations, so the audio is
+  identical with or without subtitles. Subtitles show the text as written; the lexicon changes only
+  how it is spoken.
+- `--manifest FILE.json` (`-` for stdout): the sample rate and duration, every paragraph's start,
+  end and `--split` file, and every sentence's text, voice, start and end, in seconds to the
+  microsecond (`round(t * sample_rate)` is the sample). This drives slide timing and chapters.
+- `--split DIR`: each paragraph in its own WAV, an exact slice of the whole render without the
+  pauses between paragraphs.
+- `--loudness -16`: integrated loudness per ITU-R BS.1770 (what ffmpeg's `ebur128` and `loudnorm`
+  measure) for everything written, with a limiter that keeps sample peaks under −1 dBFS. One gain
+  for the whole render, so split files keep their relative levels; the manifest records the
+  loudness before and after.
+
+The manifest for the script above:
+
+```json
+{
+  "sample_rate": 24000,
+  "duration": 10.474667,
+  "audio": "voice.wav",
+  "loudness": {"integrated": -16.00, "before": -21.26, "gain_db": 5.31, "peak_dbfs": -1.00},
+  "paragraphs": [
+    {"start": 0.000000, "end": 2.701333, "sentences": [
+      {"start": 0.000000, "end": 0.981333, "voice": "af_heart", "text": "Welcome back."},
+      {"start": 1.101333, "end": 2.701333, "voice": "af_heart", "text": "Here is what happened this week."}
+    ]},
+    {"start": 3.301333, "end": 8.594667, "sentences": [
+      {"start": 3.301333, "end": 4.048000, "voice": "bm_george", "text": "Thanks."},
+```
+
 ## Pronunciations
 
 ```sh

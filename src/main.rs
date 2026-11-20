@@ -11,13 +11,17 @@ mod fallback;
 mod g2p;
 mod kokoro;
 mod lexicon;
+mod loudness;
 mod models;
 mod normalize;
 mod npz;
 mod onnx;
 mod paths;
 mod picker;
+mod render;
+mod script;
 mod text;
+mod timeline;
 mod trim;
 mod vocab;
 
@@ -36,8 +40,18 @@ use config::Config;
 use g2p::Mode;
 use lexicon::Lexicon;
 use models::Model;
+use render::Pauses;
+use script::Script;
+use timeline::{Loudness, Timeline};
 
 const AFTER_HELP: &str = "\
+Text: a blank line starts a paragraph. Embedded commands as in say: [[slnc 500]] pauses 500 ms,
+[[rate 220]] speaks at 220 words per minute; [[voice bm_george]] switches voice for what follows
+(dialogue), [[rset]] goes back. Other [[...]] commands are skipped, never read out.
+
+Productions:
+  speak -f script.txt -o voice.wav --subtitles voice.srt --manifest voice.json --loudness -16
+
 More:
   speak voices                     pick the default voice (plain list when not on a terminal)
   speak models                     list models; speak models download|rm NAME
@@ -79,6 +93,22 @@ struct Args {
     /// G2P: auto (misaki for English) or espeak (kokoro-onnx's exact path, for regression tests)
     #[arg(long, hide = true, value_parser = ["auto", "espeak"])]
     g2p: Option<String>,
+
+    /// Write subtitles (.srt or .vtt): a cue per sentence, long ones split at clauses
+    #[arg(long, value_name = "FILE", help_heading = "Productions")]
+    subtitles: Option<PathBuf>,
+    /// Write timings as JSON: paragraphs, sentences, voices, start/end in s ('-': stdout)
+    #[arg(long, value_name = "FILE", help_heading = "Productions")]
+    manifest: Option<PathBuf>,
+    /// Write each paragraph to DIR/001.wav, DIR/002.wav, ... (with or without -o)
+    #[arg(long, value_name = "DIR", help_heading = "Productions")]
+    split: Option<PathBuf>,
+    /// Normalise written audio to LUFS, e.g. -16 (ITU-R BS.1770; peaks under -1 dBFS)
+    #[arg(long, value_name = "LUFS", allow_negative_numbers = true, help_heading = "Productions")]
+    loudness: Option<f64>,
+    /// Pause after a sentence, and after a paragraph, in ms [default: 120,600]
+    #[arg(long, value_name = "MS[,MS]", value_parser = parse_pauses, help_heading = "Productions")]
+    pauses: Option<Pauses>,
 
     // say(1) flags that are accepted and ignored, so scripts written for say keep working.
     #[arg(short = 'a', long = "audio-device", hide = true)]
@@ -181,6 +211,43 @@ fn read_text(a: &Args) -> Result<String, Exit> {
     }
 }
 
+fn parse_pauses(s: &str) -> Result<Pauses, String> {
+    let ms = |v: &str| v.trim().parse::<u32>().map_err(|_| format!("'{v}' is not a number of milliseconds"));
+    match s.split_once(',') {
+        Some((a, b)) => Ok(Pauses { sentence_ms: ms(a)?, paragraph_ms: ms(b)? }),
+        None => {
+            let sentence_ms = ms(s)?;
+            Ok(Pauses { sentence_ms, paragraph_ms: sentence_ms.max(Pauses::default().paragraph_ms) })
+        }
+    }
+}
+
+/// Flag combinations that can't work, refused before anything else happens (exit 2).
+fn check_flags(a: &Args) -> Result<(), Exit> {
+    if let Some(p) = &a.subtitles
+        && !p.extension().is_some_and(|e| e.eq_ignore_ascii_case("srt") || e.eq_ignore_ascii_case("vtt"))
+    {
+        return Err(exit(2, format!("--subtitles {}: the file must end in .srt or .vtt", p.display())));
+    }
+    if let Some(l) = a.loudness {
+        if a.output_file.is_none() && a.split.is_none() {
+            return Err(exit(2, "--loudness applies to written audio: add -o FILE or --split DIR"));
+        }
+        if !(-70.0..0.0).contains(&l) {
+            return Err(exit(2, format!("--loudness {l}: expected LUFS between -70 and 0, e.g. -16")));
+        }
+    }
+    Ok(())
+}
+
+/// Every voice the script uses must exist (exit 4).
+fn check_voices(script: &Script, available: &[backend::Voice]) -> Result<(), Exit> {
+    match script.voices().into_iter().find(|v| !available.iter().any(|a| a.id == *v)) {
+        Some(v) => Err(exit(4, format!("unknown voice '{v}' (try: speak -v '?')"))),
+        None => Ok(()),
+    }
+}
+
 fn speak(a: Args) -> Result<(), Exit> {
     let t0 = Instant::now();
     let home = paths::data_home();
@@ -191,73 +258,70 @@ fn speak(a: Args) -> Result<(), Exit> {
     if voice == "?" {
         return list_voices(model, &home);
     }
+    check_flags(&a)?;
 
-    let raw = text::strip_say_commands(&read_text(&a)?);
+    let source = read_text(&a)?;
+    let raw = text::strip_say_commands(&source);
     if raw.trim().is_empty() {
         return Ok(());
     }
-    let markup = lexicon::to_markup(&lexicon_for(&Lexicon::load(&paths::lexicon_file()), &voice, mode).apply(&raw));
+    let user_lexicon = Lexicon::load(&paths::lexicon_file());
+    let markup = lexicon::to_markup(&lexicon_for(&user_lexicon, &voice, mode).apply(&raw));
     if a.analyze {
         return analyze(&markup, &voice, mode, a.timing);
     }
     let speed = a.speed.or(a.rate.map(|r| r / 175.0)).unwrap_or(1.0).clamp(0.5, 2.0);
     let wpm = a.rate.or(a.speed.map(|s| s * 175.0));
+    let script = script::parse(&source, &voice, speed);
     let out = a.output_file.as_deref().map(audio::file_out).transpose().map_err(|e| exit(1, format!("{e:#}")))?;
+    // Subtitles, manifests, split files and loudness need the model itself, not the system voice.
+    let production = a.subtitles.is_some() || a.manifest.is_some() || a.split.is_some() || a.loudness.is_some();
+    let writing = out.is_some() || a.split.is_some();
 
     // Without the model, or without espeak-ng where a voice needs it, the system voice speaks.
-    let say_instead = |why: anyhow::Error| speak_with_system_voice(&why, &markup, wpm, a.output_file.as_deref());
-    if g2p::needs_espeak(mode, &voice) && g2p::espeak::find_program().is_none() {
-        let why = anyhow::Error::new(Missing(format!("espeak-ng not found, and voice {voice} needs it (install it or set SPEAK_ESPEAK)")));
+    let say_instead = |why: anyhow::Error| {
+        if production {
+            return Err(why.into());
+        }
+        speak_with_system_voice(&why, &markup, wpm, a.output_file.as_deref())
+    };
+    let voices = script.voices();
+    if let Some(v) = voices.iter().find(|v| g2p::needs_espeak(mode, v))
+        && g2p::espeak::find_program().is_none()
+    {
+        let why = anyhow::Error::new(Missing(format!("espeak-ng not found, and voice {v} needs it (install it or set SPEAK_ESPEAK)")));
         return if mode == Mode::Espeak { Err(why.into()) } else { say_instead(why) };
     }
     let download = env("SPEAK_NO_DOWNLOAD").is_none();
-    let opened = models::ensure(&home, model, download).and_then(|files| backend::open(model, files, &voice, mode));
+    let first_voice = voices.first().copied().unwrap_or(&voice);
+    let opened =
+        models::ensure(&home, model, download).and_then(|files| backend::open(model, files, first_voice, mode, a.subtitles.is_some()));
     let mut be = match opened {
         Ok(be) => be,
         Err(e) if is_missing(&e) => return say_instead(e),
         Err(e) => return Err(e.into()),
     };
-    match be.voices() {
-        Ok(vs) if vs.iter().any(|v| v.id == voice) => {}
-        Ok(_) => return Err(exit(4, format!("unknown voice '{voice}' (try: speak -v '?')"))),
-        Err(e) => return Err(e.into()),
-    }
+    check_voices(&script, &be.voices()?)?;
 
+    let lexicons = voices.iter().map(|v| (v.to_string(), lexicon_for(&user_lexicon, v, mode))).collect();
     let rate = be.info().sample_rate;
-    let sentences = text::chunks(&markup);
+    let settings = render::Settings { pauses: a.pauses.unwrap_or_default(), cues: a.subtitles.is_some() };
     let (tx, rx) = mpsc::sync_channel::<Vec<f32>>(8);
     // Synthesis runs ahead on its own thread; playback starts with the first sentence.
     let synth = std::thread::spawn(move || {
-        let mut t = Timing::default();
-        let result = (|| -> anyhow::Result<()> {
-            let gap = vec![0.0f32; (0.12 * rate as f64) as usize];
-            for (i, s) in sentences.iter().enumerate() {
-                if i > 0 && tx.send(gap.clone()).is_err() {
-                    return Ok(());
-                }
-                for chunk in be.synthesize(s, &voice, speed)? {
-                    let chunk = chunk?;
-                    t.first_chunk.get_or_insert(t0.elapsed());
-                    t.samples += chunk.samples.len();
-                    if tx.send(chunk.samples).is_err() {
-                        return Ok(()); // the player stopped
-                    }
-                }
-            }
-            Ok(())
-        })();
-        t.synth_done = Some(t0.elapsed());
-        t.stats = be.stats();
-        (result, t)
+        let (result, timeline, progress) = render::render(&mut *be, &script, &lexicons, &settings, t0, &tx);
+        drop(tx);
+        let t = Timing { first_chunk: progress.first_chunk, synth_done: Some(t0.elapsed()), samples: progress.samples, stats: be.stats() };
+        (result, timeline, t)
     });
-    let played = match &out {
-        Some(file) => {
-            let pcm: Vec<f32> = rx.iter().flatten().collect();
-            if pcm.is_empty() { Ok(()) } else { audio::write(file, &pcm, rate) }
-        }
-        None => audio::play(rx, rate),
+    let mut pcm = Vec::new();
+    let played = if writing {
+        pcm = rx.iter().flatten().collect();
+        Ok(())
+    } else {
+        audio::play(rx, rate)
     };
-    let (synthesized, t) = synth.join().map_err(|_| exit(1, "synthesis thread panicked"))?;
+    let (synthesized, mut timeline, t) = synth.join().map_err(|_| exit(1, "synthesis thread panicked"))?;
     if let Err(e) = synthesized {
         // The model failed to load: nothing was said yet, so the system voice can still say it.
         if t.samples == 0 && is_missing(&e) {
@@ -266,6 +330,8 @@ fn speak(a: Args) -> Result<(), Exit> {
         return Err(e.into());
     }
     played.map_err(|e| exit(1, format!("{e:#}")))?;
+    let loudness = write_audio(&a, out.as_ref(), &mut pcm, &mut timeline)?;
+    write_timings(&a, &timeline, loudness.as_ref())?;
     if a.timing || env("SPEAK_TIMING").is_some() {
         t.print(t0, rate, model.name);
     }
@@ -276,6 +342,46 @@ fn speak(a: Args) -> Result<(), Exit> {
 /// voice (not in `--g2p espeak`, which reproduces kokoro-onnx).
 fn lexicon_for(user: &Lexicon, voice: &str, mode: Mode) -> Lexicon {
     if mode == Mode::Auto && g2p::language(voice).starts_with("en") { user.over(lexicon::builtin()) } else { user.clone() }
+}
+
+/// `-o` and `--split`, after `--loudness`. The paragraphs are slices of the same audio, so they
+/// share its loudness and line up with the manifest.
+fn write_audio(a: &Args, out: Option<&audio::FileOut>, pcm: &mut Vec<f32>, t: &mut Timeline) -> Result<Option<Loudness>, Exit> {
+    let failed = |e: anyhow::Error| exit(1, format!("{e:#}"));
+    let loudness = a.loudness.and_then(|target| loudness::normalize(pcm, t.rate, target, -1.0));
+    if let Some(file) = out
+        && !pcm.is_empty()
+    {
+        audio::write(file, pcm, t.rate).map_err(failed)?;
+    }
+    if let Some(dir) = &a.split {
+        std::fs::create_dir_all(dir).map_err(|e| exit(1, format!("{}: {e}", dir.display())))?;
+        let width = t.paragraphs.len().to_string().len().max(3);
+        for (i, p) in t.paragraphs.iter_mut().enumerate() {
+            let path = dir.join(format!("{:0width$}.wav", i + 1));
+            audio::write(&audio::FileOut::Wav(path.clone()), &pcm[p.start..p.end], t.rate).map_err(failed)?;
+            p.file = Some(path.display().to_string());
+        }
+    }
+    Ok(loudness)
+}
+
+/// `--subtitles` and `--manifest`.
+fn write_timings(a: &Args, t: &Timeline, loudness: Option<&Loudness>) -> Result<(), Exit> {
+    let write = |path: &Path, body: String| std::fs::write(path, body).map_err(|e| exit(1, format!("{}: {e}", path.display())));
+    if let Some(path) = &a.subtitles {
+        write(path, t.subtitles(path).unwrap_or_default())?;
+    }
+    if let Some(path) = &a.manifest {
+        let audio = a.output_file.as_ref().map(|p| p.display().to_string());
+        let json = t.manifest(audio.as_deref(), loudness);
+        if path.as_os_str() == "-" {
+            print!("{json}");
+        } else {
+            write(path, json)?;
+        }
+    }
+    Ok(())
 }
 
 fn speak_with_system_voice(why: &anyhow::Error, markup: &str, wpm: Option<f32>, out: Option<&Path>) -> Result<(), Exit> {
@@ -334,7 +440,7 @@ fn analyze(markup: &str, voice: &str, mode: Mode, timing: bool) -> Result<(), Ex
 
 fn open_for_voices(model: &'static Model, home: &Path, voice: &str) -> Result<Box<dyn Backend>, Exit> {
     let files = models::ensure(home, model, env("SPEAK_NO_DOWNLOAD").is_none())?;
-    Ok(backend::open(model, files, voice, Mode::Auto)?)
+    Ok(backend::open(model, files, voice, Mode::Auto, false)?)
 }
 
 /// `-v '?'`: one voice per line, like say.

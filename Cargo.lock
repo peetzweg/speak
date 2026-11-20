@@ -1368,6 +1368,7 @@ dependencies = [
  "ort",
  "regex",
  "rodio",
+ "serde_json",
  "sha2",
  "ureq",
  "zip",
