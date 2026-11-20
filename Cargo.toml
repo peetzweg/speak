@@ -9,7 +9,7 @@ repository = "https://github.com/peetzweg/speak"
 readme = "README.md"
 keywords = ["tts", "text-to-speech", "say", "kokoro", "cli"]
 categories = ["command-line-utilities", "multimedia::audio"]
-exclude = ["/spikes", "/docs", "/research", "/out", "/third_party", "/.docker-cache"]
+exclude = ["/spikes", "/docs", "/research", "/out", "/third_party", "/.docker-cache", "/assets/demo.gif"]
 
 [dependencies]
 anyhow = "1"
