@@ -1,0 +1,97 @@
+name: release
+
+# Push a tag like v0.1.0 (matching Cargo.toml's version) to build and publish a release.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: ${{ matrix.target }}
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - { os: macos-15, target: aarch64-apple-darwin }
+          - { os: ubuntu-24.04, target: x86_64-unknown-linux-gnu }
+          - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-about
+
+      - name: Linux packages
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libasound2-dev pkg-config
+
+      - name: Build espeak-ng
+        run: scripts/build-espeak.sh
+
+      - name: Build speak
+        run: cargo build --release --locked
+
+      - name: Package
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          test "$(target/release/speak --version)" = "speak $VERSION" || { echo "tag $GITHUB_REF_NAME does not match Cargo.toml" >&2; exit 1; }
+          scripts/package.sh "$VERSION" ${{ matrix.target }}
+
+      # The unpacked archive must find its bundled espeak-ng from anywhere (a Spanish voice needs it).
+      - name: Smoke test
+        run: |
+          mkdir -p /tmp/unpack && tar -xzf dist/*.tar.gz -C /tmp/unpack
+          cd /tmp && SPEAK_NO_DOWNLOAD=1 PATH=/usr/bin:/bin /tmp/unpack/speak-*/bin/speak --analyze -v ef_dora "hola"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.target }}
+          path: dist/*.tar.gz*
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+
+      # The archives include espeak-ng (GPL-3.0-or-later); its exact source goes on the same page.
+      - name: espeak-ng source
+        run: |
+          eval "$(grep -E '^(VERSION|URL|SHA256)=' scripts/build-espeak.sh)"
+          curl -fsSL -o "dist/espeak-ng-$VERSION-source.tar.gz" "$URL"
+          echo "$SHA256  dist/espeak-ng-$VERSION-source.tar.gz" | sha256sum -c -
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          cat >notes.md <<EOF
+          \`\`\`sh
+          brew install peetzweg/tap/speak
+          \`\`\`
+
+          Or unpack the archive for your platform and put its \`bin/\` on your \`PATH\`, keeping \`libexec/\` beside it. The first run downloads the Kokoro model (354 MB).
+
+          The archives include an unmodified build of espeak-ng (GPL-3.0-or-later), which speak runs as a separate program; its source is \`espeak-ng-*-source.tar.gz\` below.
+          EOF
+          gh release create "$GITHUB_REF_NAME" dist/* --title "speak $VERSION" --notes-file notes.md --verify-tag

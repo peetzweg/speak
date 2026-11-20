@@ -8,21 +8,36 @@ talking after the first sentence, stays quiet on stdout, and has stable exit cod
 The default model is [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) (54 voices, 24 kHz).
 Models are pluggable backends; when a better open model appears it becomes the default.
 
-## Install from source
+## Install
 
-Needs Rust (stable) and, on Linux, `libasound2-dev` (ALSA headers). macOS on Apple silicon and
-Linux x86_64/arm64 with glibc 2.38 or newer (Debian 13, Ubuntu 24.04) are supported.
+macOS on Apple silicon, and Linux x86_64/arm64 with glibc 2.39 or newer (Ubuntu 24.04, Debian 13):
+
+```sh
+brew install peetzweg/tap/speak
+```
+
+Or take the archive for your platform from the [releases](https://github.com/peetzweg/speak/releases),
+unpack it anywhere and put its `bin/` on your `PATH`, keeping `libexec/` beside it. Linux needs
+ALSA (`libasound2`). The first run downloads the model (354 MB, see [Models](#models)).
+
+Releases include espeak-ng 1.52.0 for the Spanish, French, Hindi, Italian, Portuguese, Japanese
+and Chinese voices and for English words outside speak's dictionaries. speak runs it as a separate
+program; its source is attached to each release. Homebrew's own `espeak-ng` formula also installs
+a `speak` command, so the two formulas can't be installed side by side.
+
+### From source
+
+Needs Rust (stable) and, on Linux, `libasound2-dev` (ALSA headers).
 
 ```sh
 cargo install --path .
 ```
 
 ONNX Runtime is linked into the binary, so English needs nothing besides speak. Optionally
-install `espeak-ng` (`brew install espeak-ng`, `apt install espeak-ng`): the Spanish, French,
-Hindi, Italian, Portuguese, Japanese and Chinese voices need it, and English uses it for words
-outside speak's English dictionaries. `scripts/build-espeak.sh` builds
-espeak-ng 1.52.0 into `third_party/` instead; point `SPEAK_ESPEAK` at it. (Homebrew's espeak-ng
-also installs a `speak` link; make sure `~/.cargo/bin` comes first in your `PATH`.)
+install `espeak-ng` (`brew install espeak-ng`, `apt install espeak-ng`) for the voices and words
+above. `scripts/build-espeak.sh` builds espeak-ng 1.52.0 into `third_party/` instead; point
+`SPEAK_ESPEAK` at it. (Homebrew's espeak-ng also installs a `speak` link; make sure
+`~/.cargo/bin` comes first in your `PATH`.)
 
 ## Usage
 

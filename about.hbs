@@ -1,0 +1,18 @@
+# Third-party licences
+
+The Rust crates linked into this build of speak, grouped by licence. Credits for the models,
+data and other projects speak builds on are in NOTICE; ONNX Runtime's licence and notices are
+in licenses/onnxruntime/, espeak-ng's in licenses/espeak-ng-COPYING.
+
+{{#each licenses}}
+## {{{name}}}
+
+{{#each used_by}}
+- {{crate.name}} {{crate.version}}{{#if crate.repository}} ({{crate.repository}}){{/if}}
+{{/each}}
+
+```text
+{{{text}}}
+```
+
+{{/each}}
