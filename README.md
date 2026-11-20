@@ -8,9 +8,7 @@ talking after the first sentence, stays quiet on stdout, and has stable exit cod
 The default model is [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) (54 voices, 24 kHz).
 Models are pluggable backends; when a better open model appears it becomes the default.
 
-<p align="center">
-  <img src="assets/demo.gif" width="800" alt="A terminal session: speak says hello in the default voice, then in a British voice, then in Spanish; a background announcement returns the prompt at once; a faster line; and finally brew install peetzweg/tap/speak">
-</p>
+https://github.com/user-attachments/assets/48f8eb0a-c2f2-410d-a401-9ebe7607eaec
 
 ```sh
 brew install peetzweg/tap/speak
