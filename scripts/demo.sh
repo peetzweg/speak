@@ -3,12 +3,11 @@
 # audio laid under each command at the moment it runs.
 #
 #   scripts/demo.sh          # README: out/demo/demo.mp4 (with sound) and out/demo/demo.gif
-#   scripts/demo.sh 16x9     # social posts: out/demo-16x9/demo.mp4, 1920x1080 with a title
+#   scripts/demo.sh 16x9     # social posts: out/demo-16x9/demo.mp4, the terminal at 1920x1080
 #
-# Needs vhs, ffmpeg, bc and speak (SPEAK_BIN, default: on PATH); 16x9 also needs Python with
-# Pillow, and Helvetica Neue (macOS) for the title. While vhs records, `speak` is a stand-in that
-# waits as long as the real clip lasts, so the prompt comes back exactly when the voice ends;
-# nothing plays out loud.
+# Needs vhs, ffmpeg, bc and speak (SPEAK_BIN, default: on PATH). While vhs records, `speak` is a
+# stand-in that waits as long as the real clip lasts, so the prompt comes back exactly when the
+# voice ends; nothing plays out loud.
 set -euo pipefail
 FORMAT=${1:-readme}
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -18,7 +17,7 @@ TYPING=0.045 # seconds per typed character
 case $FORMAT in
   readme)
     OUT=$ROOT/out/demo
-    TERMINAL=$OUT/demo.mp4
+    PROMPT='$ '
     LOOK="Output \"$OUT/demo.gif\"
 Set FontSize 26
 Set Width 1280
@@ -26,18 +25,14 @@ Set Height 420
 Set Padding 36"
     ;;
   16x9)
-    # The terminal floats on a 1920x1080 card: title above, address below.
+    # Larger type, and a blank line before each prompt so the session fills the frame.
     OUT=$ROOT/out/demo-16x9
-    TERMINAL=$OUT/terminal.mp4
-    BG="#11111b"
-    LOOK="Set FontSize 37
+    PROMPT='\n$ '
+    LOOK="Set FontSize 40
 Set LineHeight 1.3
-Set Width 1800
-Set Height 600
-Set Padding 40
-Set Margin 24
-Set MarginFill \"$BG\"
-Set BorderRadius 14"
+Set Width 1920
+Set Height 1080
+Set Padding 60"
     ;;
   *)
     echo "usage: scripts/demo.sh [16x9]" >&2
@@ -69,7 +64,7 @@ typed() { # the command as typed in the session
 
 TAPE=$OUT/demo.tape
 cat >"$TAPE" <<EOF
-Output "$TERMINAL"
+Output "$OUT/demo.mp4"
 $LOOK
 Set Shell bash
 Set Framerate 30
@@ -78,7 +73,7 @@ Set Theme "Catppuccin Mocha"
 Set WindowBar Colorful
 Set CursorBlink false
 Hide
-Type@1ms \`export PS1='\$ ' HISTFILE=/dev/null; speak() { case " \$* " in *' --background '*) return;; esac; sleep \$(echo "$LATENCY + \$(cat $OUT/clips/\$(printf '%s' "\${@: -1}" | shasum | cut -c1-12).dur)" | bc); }; clear\`
+Type@1ms \`export PS1='$PROMPT' HISTFILE=/dev/null; speak() { case " \$* " in *' --background '*) return;; esac; sleep \$(echo "$LATENCY + \$(cat $OUT/clips/\$(printf '%s' "\${@: -1}" | shasum | cut -c1-12).dur)" | bc); }; clear\`
 Enter
 Sleep 1s
 Show
@@ -106,28 +101,7 @@ done
 printf 'Type `brew install peetzweg/tap/speak`\nSleep 3s\n' >>"$TAPE"
 
 vhs "$TAPE" >/dev/null 2>&1
-VIDEO=$TERMINAL
-
-if [[ $FORMAT == 16x9 ]]; then
-  python3 -I - "$OUT/card.png" "$BG" <<'EOF'
-import sys
-from PIL import Image, ImageDraw, ImageFont
-
-out, bg = sys.argv[1], sys.argv[2]
-font = "/System/Library/Fonts/HelveticaNeue.ttc"  # faces: 1 Bold, 0 Regular, 10 Medium
-img = Image.new("RGB", (1920, 1080), bg)
-d = ImageDraw.Draw(img)
-d.text((960, 175), "speak", font=ImageFont.truetype(font, 128, index=1), fill="#cdd6f4", anchor="ms")
-d.text((960, 262), "say, but with a neural voice that runs on your own machine. For people and agents.",
-       font=ImageFont.truetype(font, 40, index=0), fill="#a6adc8", anchor="ms")
-d.text((960, 1012), "github.com/peetzweg/speak", font=ImageFont.truetype(font, 38, index=10), fill="#89b4fa", anchor="ms")
-img.save(out)
-EOF
-  VIDEO=$OUT/card.mp4
-  ffmpeg -v error -y -loop 1 -framerate 30 -i "$OUT/card.png" -i "$TERMINAL" \
-    -filter_complex "[0:v][1:v]overlay=60:318:shortest=1,format=yuv420p" \
-    -c:v libx264 -preset slow -crf 18 -r 30 "$VIDEO"
-fi
+VIDEO=$OUT/demo.mp4
 
 # The audio track: each clip at its command's Enter plus the latency, muxed into the video.
 inputs=() filters="" mix="" n=0
