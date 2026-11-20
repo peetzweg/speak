@@ -121,7 +121,7 @@ pub fn read_wav(path: &Path) -> (u32, u16, u16, Vec<i16>) {
             rate = u32::from_le_bytes(body[4..8].try_into().unwrap());
             bits = u16::from_le_bytes([body[14], body[15]]);
         } else if id == b"data" {
-            let samples = body.chunks_exact(2).map(|c| i16::from_le_bytes([c[0], c[1]])).collect();
+            let samples = body.as_chunks::<2>().0.iter().map(|c| i16::from_le_bytes(*c)).collect();
             return (rate, channels, bits, samples);
         }
         i += 8 + len + (len & 1);

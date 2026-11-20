@@ -46,7 +46,7 @@ pub fn parse_npy(b: &[u8]) -> Result<(Vec<usize>, Vec<f32>)> {
     }
     let shape_src = header.split("'shape': (").nth(1).and_then(|s| s.split(')').next()).context("no shape in .npy header")?;
     let shape: Vec<usize> = shape_src.split(',').filter_map(|s| s.trim().parse().ok()).collect();
-    let data: Vec<f32> = b[start + header_len..].chunks_exact(4).map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect();
+    let data: Vec<f32> = b[start + header_len..].as_chunks::<4>().0.iter().map(|c| f32::from_le_bytes(*c)).collect();
     if data.len() != shape.iter().product::<usize>() {
         bail!(".npy size doesn't match its shape {shape:?}");
     }

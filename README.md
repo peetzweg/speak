@@ -94,6 +94,23 @@ before it is used; an interrupted download resumes. Files already there (for exa
 earlier Python install) are verified once and used as they are. Set `SPEAK_NO_DOWNLOAD=1` to
 never download.
 
+## How it compares
+
+| | Voice | Runs | Licence |
+|---|---|---|---|
+| **speak** | neural, open models (Kokoro-82M today) | on your machine, macOS and Linux | MIT or Apache-2.0 |
+| `say` | Apple's voices | on your Mac | part of macOS |
+| [sag](https://github.com/steipete/sag) | ElevenLabs | on ElevenLabs' servers: API key, paid per character | MIT |
+| [espeak-ng](https://github.com/espeak-ng/espeak-ng) | formant synthesis: clear but robotic | anywhere, 100+ languages | GPL-3.0-or-later |
+| [Piper](https://github.com/OHF-Voice/piper1-gpl) | neural (VITS), one model per voice | on your machine | GPL-3.0-or-later; each voice has its own licence |
+
+**speak and espeak-ng.** espeak-ng does two jobs. It works out how text is pronounced, with
+rules and dictionaries for over 100 languages, and it turns that pronunciation into sound with
+a formant synthesizer, which is where its robotic voice comes from. Kokoro needs only the
+first job: it takes phonemes in and makes the voice itself. speak does English pronunciation
+with misaki and asks espeak-ng only for Kokoro's other languages and for English words misaki
+doesn't know.
+
 ## Development
 
 ```sh
@@ -106,9 +123,33 @@ scripts/ab.sh                     # fp32 vs int8 samples and numbers into out/ab
 Tests that need the model use `$SPEAK_TEST_MODELS` (default `~/.local/share/speak/models`)
 read-only and skip when it is missing. `spikes/` holds the Go and Rust prototypes this grew from.
 
-## Licence and credits
+## Credits
+
+speak copies its interface from macOS's `say`, so anything that calls `say` can call `speak`
+instead. The idea of a `say` with a modern voice comes from [sag](https://github.com/steipete/sag)
+by Peter Steinberger, which does it with ElevenLabs' hosted voices; speak is the local
+counterpart.
+
+The work it stands on:
+
+- [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) by hexgrad: the voice (Apache-2.0).
+- [misaki](https://github.com/hexgrad/misaki) by hexgrad: English pronunciation, its
+  dictionaries and rules (Apache-2.0), through [misaki-rs](https://github.com/MicheleYin/misaki-rs)
+  (MIT).
+- [kokoro-onnx](https://github.com/thewh1teagle/kokoro-onnx) by thewh1teagle: the inference
+  pipeline speak follows, and the model files it downloads (MIT).
+- [ONNX Runtime](https://onnxruntime.ai) by Microsoft (MIT), linked in through
+  [ort](https://github.com/pykeio/ort) by pyke (MIT or Apache-2.0).
+- [espeak-ng](https://github.com/espeak-ng/espeak-ng): pronunciation for the other languages
+  (GPL-3.0-or-later), run as a separate program.
+- [librosa](https://github.com/librosa/librosa): the silence trimming (ISC).
+- The Rust crates in `Cargo.lock`, all under permissive licences.
+
+[NOTICE](NOTICE) has the details.
+
+## Licence
 
 speak is licensed under either of [Apache-2.0](LICENSE-APACHE) or [MIT](LICENSE-MIT), at your
-option. It builds on Kokoro-82M by hexgrad (Apache-2.0), kokoro-onnx (MIT), misaki
-(Apache-2.0), misaki-rs (MIT) and ONNX Runtime (MIT); see [NOTICE](NOTICE). espeak-ng
-(GPL-3.0-or-later) is never linked into speak, only run as a separate program when present.
+option: anyone can use, change, package or embed it, for any purpose, as long as the notices
+stay. espeak-ng is never linked into speak, only run as a separate program, so its GPL covers
+espeak-ng alone.

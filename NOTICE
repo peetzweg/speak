@@ -22,7 +22,7 @@ misaki (https://github.com/hexgrad/misaki), Apache License 2.0, by hexgrad
 misaki-rs (https://github.com/MicheleYin/misaki-rs), MIT License
   English grapheme-to-phoneme conversion, including misaki's lexicons, linked into speak.
 
-ONNX Runtime (https://github.com/microsoft/onnxruntime), MIT License, Copyright (c) Microsoft
+ONNX Runtime (https://onnxruntime.ai), MIT License, Copyright (c) Microsoft
   Corporation. Linked statically into speak's binary (prebuilt by pyke.io for the `ort` crate);
   ONNX Runtime's own third-party notices apply to binaries that contain it.
 

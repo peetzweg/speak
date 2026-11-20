@@ -17,10 +17,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-14, ubuntu-24.04]
+        os: [macos-15, ubuntu-24.04]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -35,7 +35,7 @@ jobs:
       # espeak-ng 1.52.0 from its pinned source: the regression test compares against output made
       # with 1.52, and Ubuntu 24.04 ships 1.51.
       - name: Cache espeak-ng
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: third_party/espeak-ng
           key: espeak-ng-1.52.0-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/build-espeak.sh') }}
@@ -43,7 +43,7 @@ jobs:
         run: scripts/build-espeak.sh
 
       - name: Cache the Kokoro model
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/speak-models
           key: kokoro-v1.0-fp32-7d5df8ec
