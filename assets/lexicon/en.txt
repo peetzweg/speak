@@ -254,7 +254,6 @@ kubeconfig = cube con fig
 # contested: also "kube C T L" and "kube cuddle"
 kubectl = cube control
 kubelet = cube let
-Kubernetes = coo-burr-net-ease
 Linkerd = linker D
 Linode = line-ode
 Mailgun = mail gun
@@ -277,8 +276,8 @@ redis = /ɹˈɛdɪs/
 ROCm = rock em
 SQLAlchemy = sequel alchemy
 # contested: its author says "S Q L ite"; misaki already reads SQL as "sequel"
-SQLite = sequel light
-SQLite3 = sequel light three
+SQLite = sequel-light
+SQLite3 = sequel-light three
 SQLx = sequel X
 Traefik = traffic
 tvOS = T V O S

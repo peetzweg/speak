@@ -321,7 +321,6 @@ mod tests {
             ("JSON", "ʤˈAsᵊn", ""),
             ("YAML", "jˈæmˌɛl", "jˈamˌɛl"),
             ("kubectl", "kjˈub kəntɹˈOl", "kjˈuːb kəntɹˈQl"),
-            ("Kubernetes", "kˌubˈɜɹnˈɛtˌiz", "kˌuːbˌɜːnˈɛtˈiːz"),
             ("stdout", "stˈændəɹd ˈWt", "stˈandəd ˈWt"),
             ("enum", "ˈinˌʌm", "ˈiːnˌʌm"),
             ("Deno", "dˈinˌO", "dˈiːnˌQ"),
