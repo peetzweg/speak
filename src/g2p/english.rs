@@ -23,11 +23,15 @@ impl English {
     /// The fallback (espeak-ng's process or the network) starts later, with the first word that
     /// needs it.
     pub fn new(british: bool, espeak: Option<Program>) -> Self {
-        let lang = if british { misaki_rs::Language::EnglishGB } else { misaki_rs::Language::EnglishUS };
         let fallback: Box<dyn misaki_rs::Fallback> = match espeak {
             Some(program) => Box::new(EspeakFallback { british, program, child: Mutex::new(None) }),
             None => Box::new(NeuralFallback::new(british)),
         };
+        Self::with_fallback(british, fallback)
+    }
+
+    fn with_fallback(british: bool, fallback: Box<dyn misaki_rs::Fallback>) -> Self {
+        let lang = if british { misaki_rs::Language::EnglishGB } else { misaki_rs::Language::EnglishUS };
         let mut g2p = misaki_rs::G2P::with_fallback(lang, Some(fallback));
         g2p.unk = String::new(); // like Kokoro's pipeline: a word nothing can read is skipped
         Self { g2p, british }
@@ -273,5 +277,70 @@ mod tests {
         // Answers are kept.
         let ps = fallback.phonemize("nginx").unwrap();
         assert_eq!(fallback.state.lock().unwrap().known["nginx"], ps);
+    }
+
+    /// Notes every word misaki hands its fallback, and reads none of them.
+    struct Recorder(std::sync::Arc<Mutex<Vec<String>>>);
+
+    impl Fallback for Recorder {
+        fn phonemize(&self, word: &str) -> Result<String, FallbackError> {
+            self.0.lock().unwrap().push(word.to_string());
+            Err(FallbackError::NoPhonemes { word: word.to_string() })
+        }
+    }
+
+    /// `word` the way speak reads it: through the built-in lexicon, then misaki.
+    fn builtin_reading(en: &English, word: &str) -> String {
+        en.phonemize(&crate::lexicon::to_markup(&crate::lexicon::builtin().apply(word))).unwrap()
+    }
+
+    #[test]
+    fn builtin_entries_need_no_fallback() {
+        // misaki's dictionaries read every built-in spoken form by themselves, so it sounds the
+        // same with or without espeak-ng, in either accent.
+        for british in [false, true] {
+            let asked = std::sync::Arc::new(Mutex::new(Vec::new()));
+            let en = English::with_fallback(british, Box::new(Recorder(asked.clone())));
+            for (word, spoken) in crate::lexicon::builtin().sorted() {
+                let ps = builtin_reading(&en, word);
+                let asked = std::mem::take(&mut *asked.lock().unwrap());
+                let dialect = if british { "GB" } else { "US" };
+                assert!(asked.is_empty(), "{word} = {spoken} ({dialect}): misaki's dictionaries lack {asked:?}");
+                assert!(!ps.trim().is_empty(), "{word} = {spoken} ({dialect}) reads as nothing");
+            }
+        }
+    }
+
+    #[test]
+    fn builtin_readings() {
+        let none = || Box::new(Recorder(Default::default()));
+        let (us, gb) = (English::with_fallback(false, none()), English::with_fallback(true, none()));
+        // (text, US, GB or "" when it is the same as US)
+        let cases = [
+            ("redis", "ɹˈɛdɪs", ""),
+            ("JSON", "ʤˈAsᵊn", ""),
+            ("YAML", "jˈæmˌɛl", "jˈamˌɛl"),
+            ("kubectl", "kjˈub kəntɹˈOl", "kjˈuːb kəntɹˈQl"),
+            ("Kubernetes", "kˌubˈɜɹnˈɛtˌiz", "kˌuːbˌɜːnˈɛtˈiːz"),
+            ("stdout", "stˈændəɹd ˈWt", "stˈandəd ˈWt"),
+            ("enum", "ˈinˌʌm", "ˈiːnˌʌm"),
+            ("Deno", "dˈinˌO", "dˈiːnˌQ"),
+            ("vite", "vˈit", ""),
+            ("numpy", "nˈʌm pˈI", ""),
+            ("url", "jˌuˌɑɹˈɛl", "jˌuːˌɑːˈɛl"),
+            ("wifi", "wˈIfˌI", ""),
+            ("nginx", "ˈɛnʤən ˈɛks", "ˈɛnʤɪn ˈɛks"),
+            ("wget", "dˈʌbᵊlju ɡˈɛt", "dˈʌbᵊljuː ɡˈɛt"),
+            ("Postgres", "pˈOst ɡɹɛs", "pˈQst ɡɹɛs"),
+            ("AWS", "ˌAdˌʌbᵊljuˈɛs", "ˌAdˌʌbᵊljuːˈɛs"),
+            ("sudo", "sˈu dˈu", "sˈuː dˈuː"),
+            ("C#", "sˈi ʃˈɑɹp", "sˈiː ʃˈɑːp"),
+            ("async", "ˈAsˌɪŋk", ""),
+            ("TODO", "tə dˈu", "tə dˈuː"),
+        ];
+        for (text, want_us, want_gb) in cases {
+            assert_eq!(builtin_reading(&us, text), want_us, "{text} (US)");
+            assert_eq!(builtin_reading(&gb, text), if want_gb.is_empty() { want_us } else { want_gb }, "{text} (GB)");
+        }
     }
 }

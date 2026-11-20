@@ -41,7 +41,7 @@ const AFTER_HELP: &str = "\
 More:
   speak voices                     pick the default voice (plain list when not on a terminal)
   speak models                     list models; speak models download|rm NAME
-  speak lexicon add WORD SPOKEN…   pronunciations; also rm WORD | list | try WORD | path
+  speak lexicon add WORD SPOKEN…   pronunciations; also rm WORD | list [--builtin] | try WORD | path
 
 Environment: SPEAK_VOICE, SPEAK_MODEL, SPEAK_HOME (models, default ~/.local/share/speak),
 SPEAK_LEXICON, SPEAK_ESPEAK (espeak-ng program), SPEAK_NO_DOWNLOAD=1.
@@ -196,7 +196,7 @@ fn speak(a: Args) -> Result<(), Exit> {
     if raw.trim().is_empty() {
         return Ok(());
     }
-    let markup = lexicon::to_markup(&Lexicon::load(&paths::lexicon_file()).apply(&raw));
+    let markup = lexicon::to_markup(&lexicon_for(&Lexicon::load(&paths::lexicon_file()), &voice, mode).apply(&raw));
     if a.analyze {
         return analyze(&markup, &voice, mode, a.timing);
     }
@@ -270,6 +270,12 @@ fn speak(a: Args) -> Result<(), Exit> {
         t.print(t0, rate, model.name);
     }
     Ok(())
+}
+
+/// The pronunciations for `voice`: the user's, over speak's built-in English ones for an English
+/// voice (not in `--g2p espeak`, which reproduces kokoro-onnx).
+fn lexicon_for(user: &Lexicon, voice: &str, mode: Mode) -> Lexicon {
+    if mode == Mode::Auto && g2p::language(voice).starts_with("en") { user.over(lexicon::builtin()) } else { user.clone() }
 }
 
 fn speak_with_system_voice(why: &anyhow::Error, markup: &str, wpm: Option<f32>, out: Option<&Path>) -> Result<(), Exit> {
@@ -431,13 +437,19 @@ fn lexicon_cmd(args: &[OsString]) -> Result<(), Exit> {
         }
         ("rm" | "remove" | "del", [word]) => {
             if !lex.remove(word) {
-                return Err(exit(1, format!("no entry for '{word}'")));
+                let builtin =
+                    if lexicon::builtin().get(word).is_some() { "; it is built in, and an entry you add replaces it" } else { "" };
+                return Err(exit(1, format!("no entry for '{word}'{builtin}")));
             }
             save(&lex)?;
             println!("removed {word}");
         }
-        ("list" | "ls", []) => {
-            let entries = lex.sorted();
+        ("list" | "ls", flags @ ([] | [_])) => {
+            let entries = match flags {
+                [] => lex.sorted(),
+                [f] if f == "--builtin" => lexicon::builtin().sorted(),
+                _ => return Err(exit(2, "usage: speak lexicon list [--builtin]")),
+            };
             let width = entries.iter().map(|(w, _)| w.chars().count()).max().unwrap_or(0);
             for (w, s) in entries {
                 println!("{w:<width$}  =  {s}");
@@ -446,21 +458,10 @@ fn lexicon_cmd(args: &[OsString]) -> Result<(), Exit> {
         ("path", []) => println!("{}", path.display()),
         ("try", words) if !words.is_empty() => {
             let word = words.join(" ");
-            let markup = lexicon::to_markup(&lex.apply(&word));
-            let spoken = lexicon::from_markup(&markup)
-                .into_iter()
-                .map(|s| match s {
-                    lexicon::Segment::Text(t) => t,
-                    lexicon::Segment::Phonemes { phonemes, .. } => format!("/{phonemes}/"),
-                })
-                .collect::<String>();
-            if spoken != word {
-                println!("{word} -> {spoken}")
-            } else {
-                println!("{word} (no entry, as spelled)")
-            }
             let cfg = Config::load(&paths::config_file());
             let voice = config::resolve(None, env("SPEAK_VOICE"), cfg.voice).unwrap_or_else(|| kokoro::DEFAULT_VOICE.into());
+            let (line, markup) = try_entry(&lex, &lexicon_for(&lex, &voice, Mode::Auto), &word);
+            println!("{line}");
             if let Ok(a) = kokoro::analyze(&mut g2p::G2p::new(Mode::Auto), &markup, &voice) {
                 println!("/{}/", a.phonemes);
             }
@@ -468,7 +469,60 @@ fn lexicon_cmd(args: &[OsString]) -> Result<(), Exit> {
             argv.push(word.into());
             return speak(parse(&argv)?);
         }
-        _ => return Err(exit(2, "usage: speak lexicon add WORD SPOKEN... | rm WORD | list | try WORD | path")),
+        _ => return Err(exit(2, "usage: speak lexicon add WORD SPOKEN... | rm WORD | list [--builtin] | try WORD | path")),
     }
     Ok(())
+}
+
+/// `lexicon try`'s first line (what `word` becomes under `lex`, the user's entries `user` over
+/// any built-in ones, and whether built-in entries did it), and the markup it is spoken from.
+fn try_entry(user: &Lexicon, lex: &Lexicon, word: &str) -> (String, String) {
+    let (segments, used) = lex.apply_traced(word);
+    let markup = lexicon::to_markup(&segments);
+    let spoken: String = segments
+        .into_iter()
+        .map(|s| match s {
+            lexicon::Segment::Text(t) => t,
+            lexicon::Segment::Phonemes { phonemes, .. } => format!("/{phonemes}/"),
+        })
+        .collect();
+    if used.is_empty() {
+        return (format!("{word} (no entry, as spelled)"), markup);
+    }
+    let builtin: Vec<&str> = used.into_iter().filter(|w| user.get(w).is_none()).collect();
+    let line = match builtin.as_slice() {
+        [] => format!("{word} -> {spoken}"),
+        [w] if w.to_lowercase() == word.to_lowercase() => format!("{word} -> {spoken} (built in)"),
+        ws => format!("{word} -> {spoken} (built in: {})", ws.join(", ")),
+    };
+    (line, markup)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lexicon_try_says_when_a_builtin_entry_did_it() {
+        let user = Lexicon::parse("kruapi = crew A P I\n");
+        let lex = user.over(lexicon::builtin());
+        let line = |word: &str| try_entry(&user, &lex, word).0;
+        assert_eq!(line("Redis"), "Redis -> /ɹˈɛdɪs/ (built in)");
+        assert_eq!(line("KruAPI"), "KruAPI -> crew A P I");
+        assert_eq!(line("kubectl and KruAPI"), "kubectl and KruAPI -> cube control and crew A P I (built in: kubectl)");
+        assert_eq!(line("hello"), "hello (no entry, as spelled)");
+        assert_eq!(try_entry(&user, &lex, "Redis").1, "[Redis](/ɹˈɛdɪs/)");
+        // The user's entry for a built-in word is the user's.
+        let user = Lexicon::parse("redis = ree dis\n");
+        assert_eq!(try_entry(&user, &user.over(lexicon::builtin()), "redis").0, "redis -> ree dis");
+    }
+
+    #[test]
+    fn builtin_lexicon_is_for_english_in_the_normal_mode() {
+        let user = Lexicon::parse("kruapi = crew A P I\n");
+        assert!(lexicon_for(&user, "af_heart", Mode::Auto).get("redis").is_some());
+        assert!(lexicon_for(&user, "bm_george", Mode::Auto).get("redis").is_some());
+        assert_eq!(lexicon_for(&user, "ff_siwis", Mode::Auto), user);
+        assert_eq!(lexicon_for(&user, "af_heart", Mode::Espeak), user);
+    }
 }

@@ -1,4 +1,5 @@
-//! The user's pronunciation lexicon, compatible with speak.py's file and commands.
+//! Pronunciation lexicons: the user's (compatible with speak.py's file and commands) and speak's
+//! built-in English one, `assets/lexicon/en.txt`, which English voices get underneath the user's.
 //!
 //! One `word = spoken form` per line, `#` comments. Entries match whole words, ignoring case,
 //! longest entry first. A spoken form written as `/phonemes/` (Kokoro/misaki alphabet) bypasses
@@ -6,10 +7,20 @@
 
 use std::io::Write;
 use std::path::Path;
+use std::sync::OnceLock;
 
 use regex::{Regex, RegexBuilder};
 
 pub const HEADER: &str = "# speak pronunciations: `word = spoken form`, one per line. Matches whole words, ignoring case.";
+
+/// The source of speak's built-in English lexicon.
+pub const BUILTIN_EN: &str = include_str!("../assets/lexicon/en.txt");
+
+/// speak's built-in English pronunciations: developer words misaki's dictionaries lack or misread.
+pub fn builtin() -> &'static Lexicon {
+    static LEX: OnceLock<Lexicon> = OnceLock::new();
+    LEX.get_or_init(|| Lexicon::parse(BUILTIN_EN))
+}
 
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct Lexicon {
@@ -77,6 +88,20 @@ impl Lexicon {
         self.entries.len() != before
     }
 
+    /// The spoken form for `word`, ignoring case.
+    pub fn get(&self, word: &str) -> Option<&str> {
+        let lower = word.to_lowercase();
+        self.entries.iter().find(|(w, _)| w.to_lowercase() == lower).map(|(_, s)| s.as_str())
+    }
+
+    /// These entries layered over `base`'s: an entry here replaces base's for the same word
+    /// (ignoring case), so the user's lexicon over the built-in one lets the user's entry win.
+    pub fn over(&self, base: &Lexicon) -> Lexicon {
+        let mut entries: Vec<(String, String)> = base.entries.iter().filter(|(w, _)| self.get(w).is_none()).cloned().collect();
+        entries.extend(self.entries.iter().cloned());
+        Lexicon { entries }
+    }
+
     pub fn render(&self) -> String {
         let mut out = format!("{HEADER}\n");
         for (w, s) in self.sorted() {
@@ -99,21 +124,47 @@ impl Lexicon {
     /// (so a later, shorter entry can still match inside them, as in speak.py); phoneme entries
     /// cut the text into segments.
     pub fn apply(&self, text: &str) -> Vec<Segment> {
+        self.apply_traced(text).0
+    }
+
+    /// [`apply`](Self::apply), and the words of the entries that matched, in the order applied.
+    pub fn apply_traced(&self, text: &str) -> (Vec<Segment>, Vec<&str>) {
         let mut segments = vec![Segment::Text(text.to_string())];
+        let mut used = Vec::new();
         let mut order: Vec<&(String, String)> = self.entries.iter().collect();
         order.sort_by_key(|(w, _)| std::cmp::Reverse(w.chars().count()));
         for (word, spoken) in order {
+            // Most entries can't match: skip those before building a regex.
+            if !segments.iter().any(|s| matches!(s, Segment::Text(t) if may_contain(t, word))) {
+                continue;
+            }
             let Ok(re) = RegexBuilder::new(&regex::escape(word)).case_insensitive(true).build() else { continue };
+            let mut matched = false;
             segments = segments
                 .into_iter()
                 .flat_map(|seg| match seg {
-                    Segment::Text(t) => substitute(&re, &t, spoken),
+                    Segment::Text(t) => match substitute(&re, &t, spoken) {
+                        Some(out) => {
+                            matched = true;
+                            out
+                        }
+                        None => vec![Segment::Text(t)],
+                    },
                     other => vec![other],
                 })
                 .collect();
+            if matched {
+                used.push(word.as_str());
+            }
         }
-        segments
+        (segments, used)
     }
+}
+
+/// False only when `text` cannot contain `word`, ignoring case. Exact for ASCII, where a
+/// case-insensitive match is a substring of the lowercased text; anything else may match.
+fn may_contain(text: &str, word: &str) -> bool {
+    !(text.is_ascii() && word.is_ascii()) || text.to_ascii_lowercase().contains(&word.to_ascii_lowercase())
 }
 
 /// `\w` or `-`: what may not touch a match on either side (speak.py's `(?<![\w-])…(?![\w-])`).
@@ -142,12 +193,13 @@ fn whole_word_matches(re: &Regex, text: &str) -> Vec<std::ops::Range<usize>> {
     out
 }
 
-fn substitute(re: &Regex, text: &str, spoken: &str) -> Vec<Segment> {
+/// `text` with every whole-word match of `re` replaced by `spoken`; `None` if there is none.
+fn substitute(re: &Regex, text: &str, spoken: &str) -> Option<Vec<Segment>> {
     let matches = whole_word_matches(re, text);
     if matches.is_empty() {
-        return vec![Segment::Text(text.to_string())];
+        return None;
     }
-    match phonemes_of(spoken) {
+    Some(match phonemes_of(spoken) {
         None => {
             let mut out = String::with_capacity(text.len());
             let mut last = 0;
@@ -174,7 +226,7 @@ fn substitute(re: &Regex, text: &str, spoken: &str) -> Vec<Segment> {
             }
             out
         }
-    }
+    })
 }
 
 /// Segments back to one string, with phoneme entries as misaki's inline `[word](/phonemes/)`
@@ -317,5 +369,70 @@ mod tests {
         assert_eq!(phonemes_of("/half"), None);
         assert_eq!(phonemes_of("//"), None);
         assert_eq!(phonemes_of("crew A P I"), None);
+    }
+
+    #[test]
+    fn traces_the_entries_used() {
+        let l = lex("kruapi = crew A P I\nunused = x\nkokoro = /kˈOkəɹO/\nsame = same\n");
+        let (segments, used) = l.apply_traced("Kokoro by KruAPI, the same");
+        assert_eq!(to_markup(&segments), "[Kokoro](/kˈOkəɹO/) by crew A P I, the same");
+        assert_eq!(used, ["kruapi", "kokoro", "same"]);
+    }
+
+    #[test]
+    fn entries_that_cannot_match_are_skipped() {
+        assert!(!may_contain("Hello world", "redis"));
+        assert!(may_contain("Hello REDIS", "redis"));
+        assert!(may_contain("Hello Redis-cluster", "redis"));
+        // Beyond ASCII, case folding is the regex's business.
+        assert!(may_contain("ſtraße", "STRASSE"));
+        assert_eq!(apply(&lex("s = es\n"), "ſ"), "es");
+    }
+
+    #[test]
+    fn builtin_lexicon_parses_entry_by_entry() {
+        let mut words = std::collections::HashSet::new();
+        for line in BUILTIN_EN.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with('#')) {
+            let (word, spoken) = line.split_once('=').unwrap_or_else(|| panic!("not `word = spoken form`: {line}"));
+            let (word, spoken) = (word.trim(), spoken.trim());
+            assert!(!word.is_empty() && !spoken.is_empty(), "{line}");
+            assert!(words.insert(word.to_lowercase()), "{word} is in the built-in lexicon twice");
+            // Phonemes, whole or for a piece, only in Kokoro's alphabet.
+            let phonemes = from_markup(spoken).into_iter().filter_map(|s| match s {
+                Segment::Phonemes { phonemes, .. } => Some(phonemes),
+                Segment::Text(_) => None,
+            });
+            for ph in phonemes.chain(phonemes_of(spoken).map(str::to_string)) {
+                let unknown: String = ph.chars().filter(|&c| crate::vocab::id(c).is_none()).collect();
+                assert!(unknown.is_empty(), "{word} = {spoken}: {unknown} is not in Kokoro's vocabulary");
+            }
+        }
+        assert_eq!(builtin().entries.len(), words.len());
+        assert!(words.len() > 300, "{}", words.len());
+    }
+
+    #[test]
+    fn builtin_entries_are_read_as_written() {
+        // No entry's spoken form is changed again by another entry.
+        for (word, spoken) in &builtin().entries {
+            let want = match phonemes_of(spoken) {
+                Some(ph) => format!("[{word}](/{ph}/)"),
+                None => spoken.clone(),
+            };
+            assert_eq!(apply(builtin(), word), want, "{word}");
+            assert_eq!(apply(builtin(), &word.to_uppercase()).to_lowercase(), want.to_lowercase(), "{word}");
+        }
+    }
+
+    #[test]
+    fn user_entries_replace_builtin_ones() {
+        let user = lex("REDIS = ree dis\nkubectl = kubectl\nkruapi = crew A P I\n");
+        let both = user.over(builtin());
+        assert_eq!(apply(&both, "Redis, kubectl, YAML and KruAPI"), "ree dis, kubectl, yam-el and crew A P I");
+        assert_eq!(both.get("redis"), Some("ree dis"));
+        assert_eq!(both.get("yaml"), builtin().get("YAML"));
+        assert_eq!(apply(builtin(), "Redis"), "[Redis](/ɹˈɛdɪs/)");
+        // The user's file is untouched by the layering.
+        assert_eq!(user.sorted().len(), 3);
     }
 }

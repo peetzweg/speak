@@ -73,6 +73,44 @@ fn lexicon_commands_match_speak_py() {
 }
 
 #[test]
+fn builtin_pronunciations() {
+    let dir = tmpdir("builtin");
+    let file = dir.join("lexicon.txt");
+    let analyze = |args: &[&str]| run(speak(None).env("SPEAK_LEXICON", &file).arg("--analyze").args(args));
+    // English voices read developer words from speak's own list, the same with or without espeak-ng.
+    let o = analyze(&["Restart redis with kubectl."]);
+    assert!(o.status.success(), "{}", stderr(&o));
+    assert_eq!(phonemes(&o), "ɹˈistˌɑɹt ɹˈɛdɪs wɪð kjˈub kəntɹˈOl.");
+    let o = run(speak(None).env_remove("SPEAK_ESPEAK").env("PATH", "").args(["--analyze", "Restart redis with kubectl."]));
+    assert_eq!(phonemes(&o), "ɹˈistˌɑɹt ɹˈɛdɪs wɪð kjˈub kəntɹˈOl.");
+    assert_eq!(phonemes(&analyze(&["-v", "bm_george", "kubectl"])), "kjˈuːb kəntɹˈQl");
+
+    // The user's entry for a word wins; `rm` only touches the user's file.
+    let lex = |args: &[&str]| run(speak(None).env("SPEAK_LEXICON", &file).arg("lexicon").args(args));
+    assert!(lex(&["add", "Redis", "ree", "dis"]).status.success());
+    assert_eq!(phonemes(&analyze(&["redis"])), "ɹˈi dˈɪs");
+    assert!(lex(&["rm", "redis"]).status.success());
+    let o = lex(&["rm", "redis"]);
+    assert_eq!(o.status.code(), Some(1));
+    assert!(stderr(&o).contains("built in"), "{}", stderr(&o));
+    assert_eq!(phonemes(&analyze(&["redis"])), "ɹˈɛdɪs");
+    assert_eq!(stdout(&lex(&["list"])), "");
+
+    // The built-in list.
+    let o = lex(&["list", "--builtin"]);
+    assert!(o.status.success(), "{}", stderr(&o));
+    let list = stdout(&o);
+    assert!(list.lines().count() > 300 && list.lines().any(|l| l.starts_with("redis ") && l.ends_with("=  /ɹˈɛdɪs/")), "{list}");
+    assert_eq!(lex(&["list", "--bogus"]).status.code(), Some(2));
+
+    // Not for other languages, nor for kokoro-onnx's exact path.
+    if espeak().is_some() {
+        assert_ne!(phonemes(&analyze(&["-v", "ef_dora", "redis"])), "ɹˈɛdɪs");
+        assert_ne!(phonemes(&analyze(&["--g2p=espeak", "redis"])), "ɹˈɛdɪs");
+    }
+}
+
+#[test]
 fn english_reads_numbers_versions_and_dates() {
     let o = run(speak(None).args(["--analyze", "They shipped v0.3.5 to 2,000 users on 2025-03-03."]));
     assert!(o.status.success(), "{}", stderr(&o));
@@ -97,9 +135,9 @@ fn unknown_words_use_espeak_ng() {
         eprintln!("skipping: espeak-ng not found");
         return;
     }
-    let o = run(speak(None).args(["--analyze", "kubernetes"]));
+    let o = run(speak(None).args(["--analyze", "Grafana"]));
     assert!(o.status.success(), "{}", stderr(&o));
-    assert_eq!(phonemes(&o), "kˌubəɹnˈɛTiz");
+    assert_eq!(phonemes(&o), "ɡɹæfˈɑnə");
     // Non-English voices go through espeak-ng entirely.
     let o = run(speak(None).args(["--analyze", "-v", "ef_dora", "¿Qué tal?"]));
     assert_eq!(phonemes(&o), "kˈe tˈal?"); // ¿ is not in Kokoro's vocabulary
@@ -109,11 +147,11 @@ fn unknown_words_use_espeak_ng() {
 fn english_needs_no_espeak() {
     // No espeak-ng anywhere: words misaki's lexicons lack go to its neural fallback, per dialect.
     let no_espeak = |args: &[&str]| run(speak(None).env_remove("SPEAK_ESPEAK").env("PATH", "").args(args));
-    let o = no_espeak(&["--analyze", "kubernetes"]);
+    let o = no_espeak(&["--analyze", "Grafana"]);
     assert!(o.status.success(), "{}", stderr(&o));
-    assert_eq!(phonemes(&o), "kˌubəɹnˈits");
+    assert_eq!(phonemes(&o), "ɡɹəfˈɑnə");
     assert!(o.stderr.is_empty(), "{}", stderr(&o));
-    assert_eq!(phonemes(&no_espeak(&["--analyze", "-v", "bf_emma", "kubernetes"])), "kjˈuːbənˌɛts");
+    assert_eq!(phonemes(&no_espeak(&["--analyze", "-v", "bf_emma", "Grafana"])), "ɡɹəfˈɑːnə");
     // Lowercase abbreviations are spelled rather than guessed at.
     assert_eq!(phonemes(&no_espeak(&["--analyze", "over ssh"])), "ˈOvəɹ ˌɛsˌɛsˈAʧ");
     // ...but a non-English voice can't do without it.
@@ -196,7 +234,7 @@ fn writes_a_wav_file() {
     // Without espeak-ng, words no lexicon knows bring in the G2P network, a second ONNX Runtime
     // session next to Kokoro's.
     let unknown = dir.join("unknown.wav");
-    let o = run(speak(Some(&home)).env_remove("SPEAK_ESPEAK").env("PATH", "").arg("-o").arg(&unknown).arg("Run kubectl against nginx."));
+    let o = run(speak(Some(&home)).env_remove("SPEAK_ESPEAK").env("PATH", "").arg("-o").arg(&unknown).arg("Run Grafana against Zipkin."));
     assert!(o.status.success(), "{}", stderr(&o));
     assert!(read_wav(&unknown).3.len() > 24_000, "{}", stderr(&o));
 

@@ -1,0 +1,412 @@
+# speak's built-in English pronunciations: words from developer and agent text that misaki's
+# dictionaries don't know, or read in a way nobody says them. Same format and matching as the
+# user lexicon (`word = spoken form`, whole words, ignoring case, longest first); the user's own
+# entry for a word replaces the one here. English voices only.
+#
+# A spoken form is a respelling misaki's dictionaries read by themselves, so the word sounds the
+# same with or without espeak-ng and follows the voice's accent (US or GB):
+#   * capitals apart (`C H mod`) or with dots (`A.W.S.`) are spelled as letters,
+#   * a hyphen makes one word with one main stress (`e-num`, `T-mux`),
+#   * `/phonemes/` (Kokoro's alphabet) only where no respelling works, and `[piece](/phonemes/)`
+#     for one piece of a respelling; both use sounds US and GB share where they can.
+# An entry is here only if one of speak's readings (espeak-ng or misaki's network, US or GB)
+# gets the word wrong. Never an ordinary English word, or a word whose other casing is one with
+# a different reading. Lines starting `# contested:` mark readings people disagree on.
+
+# --- Shell commands and Unix tools ---
+afconvert = A F convert
+afplay = A F play
+asdf = A S D F
+btop = B top
+bzip2 = B zip two
+cgroups = C groups
+chgrp = C H group
+chmod = C H mod
+chroot = C H root
+crontab = chron tab
+csrutil = C.S.R. U-till
+diskutil = disk U-till
+dmesg = D message
+dotenv = dot env
+egrep = E grep
+emacs = e-max
+epoll = E poll
+fdisk = F disk
+ffmpeg = F F M peg
+ffprobe = F F probe
+fsync = F sync
+gzip = G zip
+hdiutil = H D I U-till
+htop = H top
+HTTPie = H T T pie
+inode = I node
+inodes = I nodes
+io_uring = I O you ring
+iostat = I O stat
+ipconfig = I P con fig
+IPsec = I P sec
+iptables = I P tables
+journalctl = journal control
+killall = kill all
+kqueue = K queue
+launchctl = launch control
+launchd = launch D
+lazygit = lazy git
+lscpu = L S C P U
+lsusb = L S U S B
+mdfind = M D find
+mkdir = make dur
+mkfs = make F S
+mmap = M map
+nftables = N F tables
+nixpkgs = nix packages
+nmap = N map
+notarytool = notary tool
+nproc = N proc
+nslookup = N S lookup
+oh-my-zsh = oh my Z S H
+osascript = O S A script
+# contested: also "pass W D"
+passwd = password
+pbcopy = P B copy
+pbpaste = P B paste
+pkill = P kill
+plist = P list
+pmset = P M set
+printenv = print env
+pty = P T Y
+pyenv = pie env
+rbenv = R B env
+rm = R M
+rmdir = remove dur
+rsync = R sync
+SELinux = S E Linux
+ssh-agent = S S H agent
+ssh-keygen = S S H key gen
+stderr = standard error
+stdin = standard in
+stdio = standard I O
+stdlib = standard lib
+stdout = standard out
+# contested: also "soo-doh"; this is the official "su do"
+sudo = sue do
+sysctl = sis control
+# contested: also "system C T L"
+systemctl = system control
+systemd = system D
+tcpdump = T C P dump
+tmux = T-mux
+traceroute = trace route
+tty = T T Y
+ufw = U F W
+umount = U mount
+uname = U-name
+uniq = unique
+useradd = user add
+usermod = user mod
+vi = V I
+vmstat = V M stat
+wget = W get
+whoami = who am I
+whois = who is
+winget = win get
+xclip = X clip
+xcode-select = X code select
+xcodebuild = X code build
+xcrun = X C run
+xdg-open = X D G open
+yq = Y Q
+zstd = Z standard
+
+# --- Languages and runtimes ---
+.NET = dot net
+ASP.NET = A S P dot net
+BibTeX = bib tech
+C# = C sharp
+Clojure = closure
+CUDA = coo-da
+Deno = Dean-o
+Elisp = E-lisp
+F# = F sharp
+GOPATH = go path
+GOROOT = go root
+goroutine = go routine
+goroutines = go routines
+MATLAB = mat lab
+OCaml = O camel
+PyPy = pie pie
+Scala = ska-la
+Verilog = vary-log
+WASI = wahs-E
+Wasm = wahs-um
+
+# --- Package managers and build tools ---
+bunx = bun X
+CMake = C make
+esbuild = E.S. build
+Pipenv = pip env
+pipx = pip X
+PyPI = pie P I
+Rspack = R S pack
+rustc = rust C
+rustdoc = rust doc
+rustfmt = rust format
+rustup = rust up
+Terragrunt = terra grunt
+toolchain = tool chain
+Turborepo = turbo repo
+uv = U V
+uvx = U V X
+venv = V env
+virtualenv = virtual env
+webpack = web pack
+
+# --- Frameworks and libraries ---
+11ty = eleventy
+Alpine.js = alpine J S
+ARKit = A R kit
+asyncio = a-sync I O
+Babylon.js = babylon J S
+Chart.js = chart J S
+D3.js = D three J S
+Express.js = express J S
+Gunicorn = G unicorn
+JAX = jacks
+Keras = care-us
+Ktor = K-tor
+libuv = lib U V
+Lodash = low dash
+Matplotlib = mat plot lib
+MikroORM = micro O R M
+Next.js = next J S
+NgRx = N G R X
+Node.js = node J S
+NumPy = num pie
+PixiJS = pixie J S
+Pygame = pie game
+PyTorch = pie torch
+Qwik = quick
+RxJS = R X J S
+safetensors = safe tensors
+scikit-learn = sigh kit learn
+SciPy = sigh pie
+sklearn = S K learn
+spaCy = spacey
+Three.js = three J S
+tiktoken = tick token
+UIKit = U I kit
+Uvicorn = U V corn
+Vite = /vˈit/
+Vitest = V-test
+Vue = view
+Vue.js = view J S
+Vuex = view X
+
+# --- Editors, terminals and developer tools ---
+CODEOWNERS = code owners
+Codespaces = code spaces
+devcontainer = [dev](/dˈɛv/) container
+devcontainers = [dev](/dˈɛv/) containers
+DevTools = [dev](/dˈɛv/) tools
+ESLint = E.S. lint
+Ghostty = ghost tea
+IntelliJ = in-tell-E J
+isort = I sort
+Jupyter = Jupiter
+JupyterLab = Jupiter lab
+mypy = my pie
+Proxyman = proxy man
+PyCharm = pie charm
+Pylance = pie lance
+pylint = pie lint
+Pyright = pie right
+pytest = pie test
+Stylelint = style lint
+submodule = sub module
+submodules = sub modules
+TSLint = T S lint
+ts-node = T S node
+unittest = unit test
+VS Code = V.S. code
+VSCode = V.S. code
+Xcode = X code
+
+# --- Infrastructure, databases and cloud ---
+Appwrite = app write
+AWS = A.W.S.
+Chainguard = chain guard
+ChromeOS = chrome O.S.
+Cognito = cog-neat-oh
+containerd = container D
+Datadog = data dog
+Debian = Debby-in
+ElastiCache = elastic cache
+Elasticsearch = elastic search
+etcd = [et](/ˈɛt/) C D
+Fluentd = fluent D
+Gitea = git tea
+github = GitHub
+Gmail = G mail
+HAProxy = H.A. proxy
+KeePass = key pass
+kubeadm = cube admin
+kubeconfig = cube con fig
+# contested: also "kube C T L" and "kube cuddle"
+kubectl = cube control
+kubelet = cube let
+Kubernetes = coo-burr-net-ease
+Linkerd = linker D
+Linode = line-ode
+Mailgun = mail gun
+memcached = mem cache D
+minikube = mini cube
+musl = mussel
+NATS = gnats
+ngrok = N grok
+# contested: also "N jinx"; this is the official "engine X"
+nginx = engine X
+OpenSSH = open S S H
+pg_dump = P G dump
+pgAdmin = P G admin
+pgbouncer = P G bouncer
+pgvector = P G vector
+Postgres = post [gress](/ɡɹɛs/)
+PostgreSQL = post [gress](/ɡɹɛs/) Q L
+Qdrant = quadrant
+redis = /ɹˈɛdɪs/
+ROCm = rock em
+SQLAlchemy = sequel alchemy
+# contested: its author says "S Q L ite"; misaki already reads SQL as "sequel"
+SQLite = sequel light
+SQLite3 = sequel light three
+SQLx = sequel X
+Traefik = traffic
+tvOS = T V O S
+Typesense = type sense
+visionOS = vision O.S.
+VMware = V M ware
+
+# --- AI and machine learning ---
+DALL-E = dolly
+DSPy = D S pie
+espeak = E speak
+espeak-ng = E speak N G
+eval = E [val](/vˌæl/)
+evals = E [vals](/vˌælz/)
+# contested: also "F A I S S"
+FAISS = face
+Kokoro = coca-row
+llama.cpp = llama C P P
+LLaMA = llama
+Midjourney = mid journey
+# contested: also spelled out
+ONNX = onyx
+
+# --- File formats and file names ---
+.env = dot env
+.gitignore = dot git ignore
+AGENTS.md = agents dot M D
+Cargo.lock = cargo dot lock
+Cargo.toml = cargo dot tom-ell
+CHANGELOG = change log
+changeset = change set
+changesets = change sets
+CLAUDE.md = Claude dot M D
+Containerfile = container file
+docker-compose.yml = docker compose dot Y M L
+dylib = dye lib
+EPUB = E-pub
+FIXME = fix me
+FLAC = flack
+Gemfile = gem file
+gitignore = git ignore
+JSON = Jason
+JSON-RPC = Jason R P C
+JSON5 = Jason five
+JSONL = Jason L
+NDJSON = N D Jason
+package.json = package dot Jason
+pyproject = pie project
+pyproject.toml = pie project dot tom-ell
+README = read me
+README.md = read me dot M D
+Taskfile = task file
+TODO = to do
+TODOs = to dos
+TOML = tom-ell
+tsconfig = T S con fig
+tsconfig.json = T S con fig dot Jason
+url = URL
+urls = URLs
+UTF-8 = U T F eight
+uuid = UUID
+UUIDv4 = UUID V four
+UUIDv7 = UUID V seven
+WAV = wave
+YAML = yam-el
+yml = Y M L
+
+# --- Protocols, networking and hardware ---
+2FA = two F.A.
+aarch64 = A. arch sixty four
+amd64 = A M D sixty four
+I2C = I squared C
+IPv4 = I P V four
+IPv6 = I P V six
+libp2p = lib P two P
+NAT = gnat
+OOM = O.O.M.
+OOMKilled = O.O.M. killed
+QUIC = quick
+RESTful = restful
+SAML = Sam-el
+UART = U-art
+VLAN = V LAN
+WiFi = Wi-Fi
+WLAN = W LAN
+x86_64 = X eighty six sixty four
+
+# --- Words in code ---
+async = a-sync
+authn = auth N
+authz = auth Z
+bcrypt = B crypt
+deinit = D init
+Ed25519 = E D two five five one nine
+enum = e-num
+enums = e-nums
+isize = I size
+JIT = /ʤˈɪt/
+NaN = nan
+nullptr = null pointer
+println = print line
+RwLock = R W lock
+scrypt = S crypt
+sha256sum = S H A two fifty six sum
+signup = sign up
+uint = U [int](/ɪnt/)
+uint8 = U [int](/ɪnt/) eight
+usize = U size
+usr = user
+
+# --- Abbreviations and jargon ---
+a11y = A. eleven Y
+adb = A D B
+DevOps = [dev](/dˈɛv/) ops
+FOSS = fosse
+# contested: also "GO-doh" and "GOD-oh"
+Godot = go-dough
+IaC = I A C
+MLOps = M L ops
+monorepo = mono repo
+monorepos = mono repos
+o11y = O eleven Y
+PoC = P O C
+polyrepo = poly repo
+SoC = S.O.C.
+sysadmin = sis admin
+TL;DR = T L D R
+vs = versus
+# needed with `vs`, which would leave the full stop behind and end the sentence there
+vs. = versus
+YAGNI = yag knee

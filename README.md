@@ -48,9 +48,10 @@ Exit codes: 0 ok, 1 synthesis or audio failure, 2 usage, 3 model or espeak-ng mi
 
 ```sh
 speak lexicon add kruapi "crew A P I"   # add or replace a respelling
-speak lexicon add kokoro /kˈOkəɹO/      # exact phonemes (Kokoro/misaki alphabet)
+speak lexicon add gif /ʤˈɪf/            # exact phonemes (Kokoro/misaki alphabet)
 speak lexicon try kruapi                # print what it becomes and hear it
 speak lexicon list | rm WORD | path
+speak lexicon list --builtin            # speak's own developer words
 ```
 
 The lexicon is a plain text file, `~/.config/speak/lexicon.txt` (or `$SPEAK_LEXICON`), one
@@ -58,14 +59,25 @@ The lexicon is a plain text file, `~/.config/speak/lexicon.txt` (or `$SPEAK_LEXI
 longest entry first. `lexicon try` prints the phonemes too, a good starting point for a
 `/phonemes/` entry.
 
+English voices also get speak's built-in list of about 370 words from developer and agent text
+that misaki reads wrong or not at all: `redis`, `kubectl`, `JSON`, `YAML`, `stdout`, `nginx`,
+`Vite`, `enum` and the like. Its entries are respellings misaki's dictionaries read by
+themselves, so a word sounds the same with or without espeak-ng and follows the voice's US or
+GB accent. Your own entry for a word replaces the built-in one, for example
+`speak lexicon add kubectl "kube C T L"`, and an entry that spells the word as it is
+(`speak lexicon add sudo sudo`) gives it back to misaki. `add` and `rm` only change your file.
+The list is [`assets/lexicon/en.txt`](assets/lexicon/en.txt); words with more than one common
+reading (`sudo`, `kubectl`, `SQLite`, `nginx`, …) are marked there.
+
 English goes through [misaki](https://github.com/hexgrad/misaki)'s lexicons (via
 [misaki-rs](https://github.com/MicheleYin/misaki-rs)), which read numbers, money, dates,
 versions and times naturally ("2,000" is "two thousand", "v0.3.5" is "version zero point three
 point five"). Words misaki's dictionaries lack go to espeak-ng when it is installed, run as a separate
 program; it is the better reader of abbreviations and names. Without it, misaki's own neural
 model (3 MB per dialect, built into speak) guesses them, and lowercase abbreviations without a
-vowel (`ssh`, `npm`) are spelled out. A `speak lexicon add` entry fixes any word, and
-`SPEAK_DEBUG=1` shows which words were read which way.
+vowel (`ssh`, `npm`) are spelled out. So a word is read by the first of: your lexicon, the
+built-in list, misaki's dictionaries, espeak-ng or the network. A `speak lexicon add` entry
+fixes any word, and `SPEAK_DEBUG=1` shows which words were read which way.
 
 ## Configuration
 
