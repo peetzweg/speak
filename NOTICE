@@ -17,10 +17,19 @@ kokoro-onnx (https://github.com/thewh1teagle/kokoro-onnx), MIT License, Copyrigh
 
 misaki (https://github.com/hexgrad/misaki), Apache License 2.0, by hexgrad
   The espeak-ng to misaki phoneme conversion tables in src/g2p/espeak.rs are taken from
-  misaki 0.9.4 (misaki/espeak.py).
+  misaki 0.9.4 (misaki/espeak.py). src/g2p/neural.rs ports misaki's FallbackNetwork
+  (misaki/en.py, commit fba1236595f2d2bf21d414ba6e57d25256afada3).
 
 misaki-rs (https://github.com/MicheleYin/misaki-rs), MIT License
   English grapheme-to-phoneme conversion, including misaki's lexicons, linked into speak.
+
+graphemes_to_phonemes_en_us and graphemes_to_phonemes_en_gb, by PeterReid, Apache License 2.0
+  https://huggingface.co/PeterReid/graphemes_to_phonemes_en_us (commit a5631b285d18d59483c32c0c3379cb9fac924f4b)
+  https://huggingface.co/PeterReid/graphemes_to_phonemes_en_gb (commit d8357d5067fa26a5c34134d6bbcf4bbf000c0ac8)
+  The neural grapheme-to-phoneme models misaki uses for English words its lexicons don't know.
+  speak redistributes them: converted to ONNX by scripts/export-g2p.py (weights unchanged; the
+  graph is one decoding step), stored in assets/g2p/ and embedded in speak's binary. The Apache
+  License 2.0 text is in LICENSE-APACHE.
 
 ONNX Runtime (https://onnxruntime.ai), MIT License, Copyright (c) Microsoft
   Corporation. Linked statically into speak's binary (prebuilt by pyke.io for the `ort` crate);
@@ -31,5 +40,5 @@ librosa (https://github.com/librosa/librosa), ISC License
 
 espeak-ng (https://github.com/espeak-ng/espeak-ng), GNU GPL version 3 or later
   speak never links or loads espeak-ng. When available, it runs the separate `espeak-ng`
-  program for words its English lexicons don't know and for non-English voices.
+  program for non-English voices and for English words its lexicons don't know.
   scripts/build-espeak.sh builds espeak-ng from its unmodified release source for development.

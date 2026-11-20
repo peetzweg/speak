@@ -2,7 +2,8 @@
 //!
 //! Three users:
 //! * non-English voices (`misaki_g2p`, the conversion Kokoro's own pipeline uses),
-//! * English words misaki doesn't know (`english_word`, see `english.rs`),
+//! * English words misaki doesn't know, when espeak-ng is installed (`english_word`, see
+//!   `english.rs`; without it, misaki's neural model reads them),
 //! * the hidden `--g2p espeak` mode (`kokoro_onnx`), which reproduces exactly what kokoro-onnx
 //!   0.4.7 feeds the model, for regression tests against its saved output.
 //!

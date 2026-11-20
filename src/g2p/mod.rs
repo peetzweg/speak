@@ -1,12 +1,14 @@
 //! Grapheme-to-phoneme: text (with the lexicon's `[word](/phonemes/)` markup) → the phoneme
 //! string a phoneme-reading model such as Kokoro takes.
 //!
-//! * English voices: misaki (with the user's phoneme entries), `espeak-ng` for unknown words.
+//! * English voices: misaki (with the user's phoneme entries). Words its lexicons don't know go to
+//!   `espeak-ng` when it is installed, else to misaki's neural network: English needs nothing else.
 //! * Other languages: `espeak-ng` for everything, converted the way Kokoro's pipeline does.
 //! * `Mode::Espeak` (hidden `--g2p espeak`): kokoro-onnx 0.4.7's exact output, for regression tests.
 
 pub mod english;
 pub mod espeak;
+pub mod neural;
 
 use anyhow::Result;
 

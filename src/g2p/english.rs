@@ -1,13 +1,16 @@
-//! English G2P: misaki (lexicons, POS tagging, numbers) via misaki-rs, with the `espeak-ng`
-//! program as the fallback for words misaki doesn't know.
+//! English G2P: misaki (lexicons, POS tagging, numbers) via misaki-rs. Words misaki doesn't know go
+//! to the `espeak-ng` program when there is one, as in Kokoro's own pipeline; without it, to
+//! misaki's neural network (`neural.rs`), so English needs nothing besides speak.
 
+use std::collections::HashMap;
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Instant;
 
 use anyhow::Result;
 use misaki_rs::fallback::FallbackError;
 
 use super::espeak::{self, Program, Subprocess};
+use super::neural::{self, Network};
 use crate::normalize;
 
 pub struct English {
@@ -17,10 +20,15 @@ pub struct English {
 
 impl English {
     /// Takes 40–150 ms (misaki-rs parses its embedded lexicons), so callers build it on a thread.
+    /// The fallback (espeak-ng's process or the network) starts later, with the first word that
+    /// needs it.
     pub fn new(british: bool, espeak: Option<Program>) -> Self {
         let lang = if british { misaki_rs::Language::EnglishGB } else { misaki_rs::Language::EnglishUS };
-        let fallback = EspeakFallback { british, program: espeak, child: Mutex::new(None), warned: AtomicBool::new(false) };
-        let mut g2p = misaki_rs::G2P::with_fallback(lang, Some(Box::new(fallback)));
+        let fallback: Box<dyn misaki_rs::Fallback> = match espeak {
+            Some(program) => Box::new(EspeakFallback { british, program, child: Mutex::new(None) }),
+            None => Box::new(NeuralFallback::new(british)),
+        };
+        let mut g2p = misaki_rs::G2P::with_fallback(lang, Some(fallback));
         g2p.unk = String::new(); // like Kokoro's pipeline: a word nothing can read is skipped
         Self { g2p, british }
     }
@@ -33,35 +41,108 @@ impl English {
     }
 }
 
-/// misaki's `Fallback` backed by an `espeak-ng` child, started on the first unknown word.
-/// Without espeak-ng the word is spelled out letter by letter.
+/// With `SPEAK_DEBUG`, one line per word a fallback read: which one, what it said, how long it took.
+fn debug(by: &str, word: &str, ps: &str, since: Instant) {
+    if std::env::var_os("SPEAK_DEBUG").is_some() {
+        eprintln!("speak: G2P fallback ({by}): {word} -> /{ps}/ ({:.1} ms)", since.elapsed().as_secs_f64() * 1e3);
+    }
+}
+
+/// misaki's `EspeakFallback` backed by an `espeak-ng` child, started on the first unknown word.
 struct EspeakFallback {
     british: bool,
-    program: Option<Program>,
+    program: Program,
     child: Mutex<Option<Subprocess>>,
-    warned: AtomicBool,
 }
 
 impl misaki_rs::Fallback for EspeakFallback {
     fn phonemize(&self, word: &str) -> Result<String, FallbackError> {
+        let t = Instant::now();
         let fail = |e: anyhow::Error| FallbackError::Espeak { word: word.to_string(), error: format!("{e:#}") };
-        let Some(program) = &self.program else {
-            if !self.warned.swap(true, Ordering::Relaxed) {
-                eprintln!("speak: espeak-ng not found, spelling out unknown words like '{word}' (install espeak-ng or set SPEAK_ESPEAK)");
-            }
-            return spell(word, self.british).ok_or(FallbackError::NoPhonemes { word: word.to_string() });
-        };
         let mut child = self.child.lock().map_err(|e| FallbackError::MutexPoisoned(e.to_string()))?;
         if child.is_none() {
-            *child = Some(Subprocess::spawn(program, if self.british { "en" } else { "en-us" }, true).map_err(fail)?);
+            *child = Some(Subprocess::spawn(&self.program, if self.british { "en" } else { "en-us" }, true).map_err(fail)?);
         }
         let ps = espeak::english_word(child.as_mut().unwrap(), word, self.british).map_err(fail)?;
+        debug("espeak-ng", word, &ps, t);
         if ps.is_empty() { Err(FallbackError::NoPhonemes { word: word.to_string() }) } else { Ok(ps) }
     }
 }
 
-/// Letter names in misaki's alphabet, for when there is no espeak-ng.
+/// misaki's neural network, for when there is no espeak-ng. It is loaded by the first word that
+/// needs it, and answers are kept for the life of the process, so a repeated word is decoded once.
+struct NeuralFallback {
+    british: bool,
+    state: Mutex<State>,
+}
+
+#[derive(Default)]
+struct State {
+    /// `None` until a word needs it; the error if it couldn't be loaded.
+    network: Option<Result<Network, String>>,
+    known: HashMap<String, String>,
+    warned: bool,
+}
+
+impl NeuralFallback {
+    fn new(british: bool) -> Self {
+        Self { british, state: Mutex::new(State::default()) }
+    }
+}
+
+/// A lowercase word without a vowel letter (`ssh`, `npm`, `http`): an abbreviation, read letter by
+/// letter. The network, trained on dictionary words, makes up a word for these ("http" → /t/).
+fn is_abbreviation(word: &str) -> bool {
+    !word.is_empty() && word.chars().all(|c| c.is_ascii_lowercase()) && !word.contains(['a', 'e', 'i', 'o', 'u', 'y'])
+}
+
+impl misaki_rs::Fallback for NeuralFallback {
+    fn phonemize(&self, word: &str) -> Result<String, FallbackError> {
+        let t = Instant::now();
+        let none = || FallbackError::NoPhonemes { word: word.to_string() };
+        // The network reads letters. misaki hands it anything (a dash, `#`, an emoji, another
+        // script) and gets an invented word back (`-` comes out as "dee"); a token without a
+        // single letter is left unread instead, as Kokoro's pipeline does without a fallback.
+        if !word.chars().any(|c| c.is_ascii_alphabetic()) {
+            return Err(none());
+        }
+        // Abbreviations, and words too long for the network (misaki fails on those): spelled.
+        if is_abbreviation(word) || word.chars().count() > neural::MAX_LETTERS {
+            let ps = spell(word, self.british).ok_or_else(none)?;
+            debug("spelled", word, &ps, t);
+            return Ok(ps);
+        }
+        let mut state = self.state.lock().map_err(|e| FallbackError::MutexPoisoned(e.to_string()))?;
+        if let Some(ps) = state.known.get(word) {
+            return Ok(ps.clone());
+        }
+        let british = self.british;
+        let network = state.network.get_or_insert_with(|| Network::load(british).map_err(|e| format!("{e:#}")));
+        let result = match network {
+            Ok(network) => network.predict(word).map_err(|e| format!("{e:#}")),
+            Err(e) => Err(e.clone()),
+        };
+        match result {
+            // misaki's rating doesn't travel through misaki-rs's `Fallback`, and speak has no use for it.
+            Ok((ps, _rating)) => {
+                debug("network", word, &ps, t);
+                state.known.insert(word.to_string(), ps.clone());
+                Ok(ps)
+            }
+            Err(e) => {
+                if !std::mem::replace(&mut state.warned, true) {
+                    eprintln!("speak: the G2P network failed ({e}); spelling out unknown words like '{word}'");
+                }
+                spell(word, british).ok_or_else(none)
+            }
+        }
+    }
+}
+
+/// `word`'s letters read out the way misaki reads an all-capitals word (`get_NNP`): its own letter
+/// names for the dialect, run together, the last one stressed (`ssh` → /ˌɛsˌɛsˈAʧ/).
 fn spell(word: &str, british: bool) -> Option<String> {
+    // us_gold / gb_gold entries for A–Z.
     const US: [&str; 26] = [
         "ˈA",
         "bˈi",
@@ -90,30 +171,69 @@ fn spell(word: &str, british: bool) -> Option<String> {
         "wˈI",
         "zˈi",
     ];
-    let letters: Vec<&str> = word
-        .chars()
-        .filter_map(|c| {
-            let i = (c.to_ascii_lowercase() as u32).checked_sub('a' as u32).filter(|i| *i < 26)? as usize;
-            Some(match (british, c.to_ascii_lowercase()) {
-                (true, 'o') => "ˈQ",
-                (true, 'r') => "ˈɑː",
-                (true, 'z') => "zˈɛd",
-                _ => US[i],
-            })
-        })
-        .collect();
-    (!letters.is_empty()).then(|| letters.join(" "))
+    const GB: [&str; 26] = [
+        "ˈA",
+        "bˈiː",
+        "sˈiː",
+        "dˈiː",
+        "ˈiː",
+        "ˈɛf",
+        "ʤˈiː",
+        "ˈAʧ",
+        "ˈI",
+        "ʤˈA",
+        "kˈA",
+        "ˈɛl",
+        "ˈɛm",
+        "ˈɛn",
+        "ˈQ",
+        "pˈiː",
+        "kjˈuː",
+        "ˈɑː",
+        "ˈɛs",
+        "tˈiː",
+        "jˈuː",
+        "vˈiː",
+        "dˈʌbᵊljuː",
+        "ˈɛks",
+        "wˈI",
+        "zˈiː",
+    ];
+    let names = if british { &GB } else { &US };
+    let letters: String =
+        word.chars().filter(char::is_ascii_alphabetic).map(|c| names[(c.to_ascii_lowercase() as u8 - b'a') as usize]).collect();
+    if letters.is_empty() {
+        return None;
+    }
+    // apply_stress(ps, 0) makes every stress secondary; then the last one becomes primary.
+    let ps = letters.replace('ˈ', "ˌ");
+    let last = ps.rfind('ˌ')?;
+    Some(format!("{}ˈ{}", &ps[..last], &ps[last + 'ˌ'.len_utf8()..]))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use misaki_rs::Fallback;
 
     #[test]
-    fn spells_without_espeak() {
-        assert_eq!(spell("Tru", false).as_deref(), Some("tˈi ˈɑɹ jˈu"));
-        assert_eq!(spell("oz", true).as_deref(), Some("ˈQ zˈɛd"));
+    fn spells_like_misaki_reads_capitals() {
+        assert_eq!(spell("http", false).as_deref(), Some("ˌAʧtˌitˌipˈi"));
+        assert_eq!(spell("oz", true).as_deref(), Some("ˌQzˈiː"));
         assert_eq!(spell("–", false), None);
+        // The same as misaki's own reading of the word in capitals.
+        let en = English::new(false, None);
+        assert_eq!(en.phonemize("NPM").unwrap(), spell("npm", false).unwrap());
+    }
+
+    #[test]
+    fn abbreviations() {
+        for word in ["http", "ssh", "npm", "zsh", "scp", "llvm", "pnpm", "grpc"] {
+            assert!(is_abbreviation(word), "{word}");
+        }
+        for word in ["rsync", "nginx", "kubectl", "Npm", "HTTP", "k8s", "co-op", ""] {
+            assert!(!is_abbreviation(word), "{word}");
+        }
     }
 
     #[test]
@@ -128,5 +248,30 @@ mod tests {
     fn phoneme_markup_bypasses_g2p() {
         let en = English::new(false, None);
         assert_eq!(en.phonemize("say [Kokoro](/kˈOkəɹO/) please").unwrap(), "sˈA kˈOkəɹO plˈiz");
+    }
+
+    #[test]
+    fn without_espeak_unknown_words_go_to_the_network() {
+        let en = English::new(false, None);
+        // Neither word is in misaki's lexicons; the network's flap (ɾ) becomes misaki's T.
+        assert_eq!(en.phonemize("kubernetes and pytorch").unwrap(), "kˌubəɹnˈits ænd pˈITəɹk");
+        // An abbreviation is spelled, like espeak-ng does.
+        assert_eq!(en.phonemize("over ssh").unwrap(), "ˈOvəɹ ˌɛsˌɛsˈAʧ");
+    }
+
+    #[test]
+    fn what_the_network_cant_take() {
+        let fallback = NeuralFallback::new(false);
+        // No letter at all: left unread, where misaki's network would invent a word.
+        assert!(matches!(fallback.phonemize("-"), Err(FallbackError::NoPhonemes { .. })));
+        assert!(matches!(fallback.phonemize("日本"), Err(FallbackError::NoPhonemes { .. })));
+        // Longer than the network's 62 letters: spelled.
+        let long = "ab".repeat(32);
+        assert_eq!(fallback.phonemize(&long).unwrap(), spell(&long, false).unwrap());
+        // Characters outside its alphabet are `<unk>` to it, as in misaki.
+        assert!(!fallback.phonemize("naïve").unwrap().is_empty());
+        // Answers are kept.
+        let ps = fallback.phonemize("nginx").unwrap();
+        assert_eq!(fallback.state.lock().unwrap().known["nginx"], ps);
     }
 }

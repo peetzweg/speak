@@ -106,13 +106,18 @@ fn unknown_words_use_espeak_ng() {
 }
 
 #[test]
-fn without_espeak_unknown_words_are_spelled() {
-    let o = run(speak(None).env_remove("SPEAK_ESPEAK").env("PATH", "").args(["--analyze", "Xqz"]));
+fn english_needs_no_espeak() {
+    // No espeak-ng anywhere: words misaki's lexicons lack go to its neural fallback, per dialect.
+    let no_espeak = |args: &[&str]| run(speak(None).env_remove("SPEAK_ESPEAK").env("PATH", "").args(args));
+    let o = no_espeak(&["--analyze", "kubernetes"]);
     assert!(o.status.success(), "{}", stderr(&o));
-    assert_eq!(phonemes(&o), "ˈɛks kjˈu zˈi");
-    assert!(stderr(&o).contains("espeak-ng not found"));
+    assert_eq!(phonemes(&o), "kˌubəɹnˈits");
+    assert!(o.stderr.is_empty(), "{}", stderr(&o));
+    assert_eq!(phonemes(&no_espeak(&["--analyze", "-v", "bf_emma", "kubernetes"])), "kjˈuːbənˌɛts");
+    // Lowercase abbreviations are spelled rather than guessed at.
+    assert_eq!(phonemes(&no_espeak(&["--analyze", "over ssh"])), "ˈOvəɹ ˌɛsˌɛsˈAʧ");
     // ...but a non-English voice can't do without it.
-    let o = run(speak(None).env_remove("SPEAK_ESPEAK").env("PATH", "").args(["--analyze", "-v", "ff_siwis", "Bonjour"]));
+    let o = no_espeak(&["--analyze", "-v", "ff_siwis", "Bonjour"]);
     assert_eq!(o.status.code(), Some(3));
 }
 
@@ -187,6 +192,13 @@ fn writes_a_wav_file() {
     let fast = dir.join("fast.wav");
     assert!(run(speak(Some(&home)).arg("-o").arg(&fast).args(["-r", "300", "Hello there. This is a test of speak."])).status.success());
     assert!(read_wav(&fast).3.len() < samples.len());
+
+    // Without espeak-ng, words no lexicon knows bring in the G2P network, a second ONNX Runtime
+    // session next to Kokoro's.
+    let unknown = dir.join("unknown.wav");
+    let o = run(speak(Some(&home)).env_remove("SPEAK_ESPEAK").env("PATH", "").arg("-o").arg(&unknown).arg("Run kubectl against nginx."));
+    assert!(o.status.success(), "{}", stderr(&o));
+    assert!(read_wav(&unknown).3.len() > 24_000, "{}", stderr(&o));
 
     // Other formats go through ffmpeg (or afconvert on macOS).
     if cfg!(target_os = "macos") {

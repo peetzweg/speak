@@ -17,10 +17,10 @@ Linux x86_64/arm64 with glibc 2.38 or newer (Debian 13, Ubuntu 24.04) are suppor
 cargo install --path .
 ```
 
-ONNX Runtime is linked into the binary, so there is nothing else to install. Optionally install
-`espeak-ng` (`brew install espeak-ng`, `apt install espeak-ng`): English works without it, but
-words outside speak's English lexicon are then spelled out, and the Spanish, French, Hindi,
-Italian, Portuguese, Japanese and Chinese voices need it. `scripts/build-espeak.sh` builds
+ONNX Runtime is linked into the binary, so English needs nothing besides speak. Optionally
+install `espeak-ng` (`brew install espeak-ng`, `apt install espeak-ng`): the Spanish, French,
+Hindi, Italian, Portuguese, Japanese and Chinese voices need it, and English uses it for words
+outside speak's English dictionaries. `scripts/build-espeak.sh` builds
 espeak-ng 1.52.0 into `third_party/` instead; point `SPEAK_ESPEAK` at it. (Homebrew's espeak-ng
 also installs a `speak` link; make sure `~/.cargo/bin` comes first in your `PATH`.)
 
@@ -61,7 +61,11 @@ longest entry first. `lexicon try` prints the phonemes too, a good starting poin
 English goes through [misaki](https://github.com/hexgrad/misaki)'s lexicons (via
 [misaki-rs](https://github.com/MicheleYin/misaki-rs)), which read numbers, money, dates,
 versions and times naturally ("2,000" is "two thousand", "v0.3.5" is "version zero point three
-point five"). Words misaki doesn't know go to espeak-ng, run as a separate program.
+point five"). Words misaki's dictionaries lack go to espeak-ng when it is installed, run as a separate
+program; it is the better reader of abbreviations and names. Without it, misaki's own neural
+model (3 MB per dialect, built into speak) guesses them, and lowercase abbreviations without a
+vowel (`ssh`, `npm`) are spelled out. A `speak lexicon add` entry fixes any word, and
+`SPEAK_DEBUG=1` shows which words were read which way.
 
 ## Configuration
 
@@ -107,9 +111,9 @@ never download.
 **speak and espeak-ng.** espeak-ng does two jobs. It works out how text is pronounced, with
 rules and dictionaries for over 100 languages, and it turns that pronunciation into sound with
 a formant synthesizer, which is where its robotic voice comes from. Kokoro needs only the
-first job: it takes phonemes in and makes the voice itself. speak does English pronunciation
-with misaki and asks espeak-ng only for Kokoro's other languages and for English words misaki
-doesn't know.
+first job: it takes phonemes in and makes the voice itself. speak does English pronunciation with misaki and asks espeak-ng only for Kokoro's other
+languages and, when it is installed, for English words misaki's dictionaries lack; without
+espeak-ng, misaki's neural model guesses those.
 
 ## Development
 
@@ -118,6 +122,7 @@ scripts/build-espeak.sh && export SPEAK_ESPEAK=$PWD/third_party/espeak-ng/bin/es
 cargo test                        # unit, CLI and kokoro-onnx regression tests
 scripts/linux-docker.sh arm64     # the same on Linux, in Docker
 scripts/ab.sh                     # fp32 vs int8 samples and numbers into out/ab/
+scripts/export-g2p.py             # rebuild assets/g2p/*.onnx (pinned Python environment in its header)
 ```
 
 Tests that need the model use `$SPEAK_TEST_MODELS` (default `~/.local/share/speak/models`)
@@ -138,12 +143,17 @@ The work it stands on:
 - [misaki](https://github.com/hexgrad/misaki) by hexgrad: English pronunciation, its
   dictionaries and rules (Apache-2.0), through [misaki-rs](https://github.com/MicheleYin/misaki-rs)
   (MIT).
+- [graphemes_to_phonemes_en_us](https://huggingface.co/PeterReid/graphemes_to_phonemes_en_us) and
+  [_en_gb](https://huggingface.co/PeterReid/graphemes_to_phonemes_en_gb) by PeterReid: the neural
+  model misaki uses for words its dictionaries lack (Apache-2.0), converted to ONNX and built
+  into speak.
 - [kokoro-onnx](https://github.com/thewh1teagle/kokoro-onnx) by thewh1teagle: the inference
   pipeline speak follows, and the model files it downloads (MIT).
 - [ONNX Runtime](https://onnxruntime.ai) by Microsoft (MIT), linked in through
   [ort](https://github.com/pykeio/ort) by pyke (MIT or Apache-2.0).
 - [espeak-ng](https://github.com/espeak-ng/espeak-ng): pronunciation for the other languages
-  (GPL-3.0-or-later), run as a separate program.
+  and, when installed, for English words misaki's dictionaries lack (GPL-3.0-or-later), run as a
+  separate program.
 - [librosa](https://github.com/librosa/librosa): the silence trimming (ISC).
 - The Rust crates in `Cargo.lock`, all under permissive licences.
 
