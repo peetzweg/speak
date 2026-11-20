@@ -7,7 +7,6 @@ use std::time::Instant;
 
 use anyhow::{Context, Result, bail};
 use ort::session::Session;
-use ort::session::builder::AutoDevicePolicy;
 use ort::value::Tensor;
 
 use crate::backend::{Backend, Chunk, ChunkIter, Files, Info, Missing, Stats, Unusable, Voice};
@@ -87,20 +86,10 @@ pub fn split_phonemes(phonemes: &str) -> Vec<String> {
 
 fn load_session(path: &Path) -> Result<Session, String> {
     let t = Instant::now();
-    let env = ort::init().with_name("speak").build().map_err(|e| e.to_string())?;
-    // ort's default device policy registers CoreML on macOS: seconds of extra load time and
-    // numbers that drift from kokoro-onnx. The CPU provider is what the reference uses.
-    let policy = match std::env::var("SPEAK_EP").as_deref() {
-        Ok("auto") => AutoDevicePolicy::MaxEfficiency,
-        _ => AutoDevicePolicy::PreferCPU,
-    };
-    let fail = |e: &dyn std::fmt::Display| format!("loading {}: {e}", path.display());
-    let session = Session::builder(&env)
-        .map_err(|e| fail(&e))?
-        .with_auto_device(policy)
-        .map_err(|e| fail(&e))?
-        .commit_from_file(path)
-        .map_err(|e| fail(&e))?;
+    // The CPU provider, which is what kokoro-onnx (the reference) uses.
+    let session = crate::onnx::cpu_session(0)
+        .and_then(|mut builder| Ok(builder.commit_from_file(path)?))
+        .map_err(|e| format!("loading {}: {e:#}", path.display()))?;
     if std::env::var_os("SPEAK_DEBUG").is_some() {
         eprintln!("speak: model loaded in {:.0} ms", t.elapsed().as_secs_f64() * 1e3);
     }

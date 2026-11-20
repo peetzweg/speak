@@ -14,6 +14,7 @@ mod lexicon;
 mod models;
 mod normalize;
 mod npz;
+mod onnx;
 mod paths;
 mod picker;
 mod text;
