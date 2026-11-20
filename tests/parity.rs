@@ -60,15 +60,16 @@ fn audio_matches_kokoro_onnx() {
     let (_, _, _, ours) = read_wav(&out);
     let (_, _, _, reference) = read_wav(&repo().join("tests/parity/kokoro-onnx-kruapi.wav"));
     assert_eq!(ours.len(), reference.len());
-    // The reference was recorded on macOS arm64, where ONNX Runtime's CPU kernels reproduce it to
-    // within a 16-bit step. Elsewhere the same tokens give slightly different numbers (Linux arm64:
-    // correlation 0.998), so only the shape of the signal is compared.
-    if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+    // ONNX Runtime picks CPU kernels by what the processor supports, so the same tokens give
+    // slightly different numbers on different machines (Linux arm64: correlation 0.998; GitHub's
+    // macOS runners: up to 2764 16-bit steps apart). Only the shape of the signal is compared by
+    // default. On the machine that recorded the reference (an Apple M5 Pro), kokoro-onnx and speak
+    // agree to within a 16-bit step; set SPEAK_TEST_EXACT_AUDIO=1 there to check that too.
+    let dot = |x: &[i16], y: &[i16]| x.iter().zip(y).map(|(a, b)| *a as f64 * *b as f64).sum::<f64>();
+    let corr = dot(&ours, &reference) / (dot(&ours, &ours) * dot(&reference, &reference)).sqrt();
+    assert!(corr > 0.99, "correlation with kokoro-onnx's audio is only {corr:.4}");
+    if std::env::var_os("SPEAK_TEST_EXACT_AUDIO").is_some() {
         let max_diff = ours.iter().zip(&reference).map(|(a, b)| (*a as i32 - *b as i32).abs()).max().unwrap();
         assert!(max_diff <= 3, "max sample difference {max_diff} (16-bit steps)");
-    } else {
-        let dot = |x: &[i16], y: &[i16]| x.iter().zip(y).map(|(a, b)| *a as f64 * *b as f64).sum::<f64>();
-        let corr = dot(&ours, &reference) / (dot(&ours, &ours) * dot(&reference, &reference)).sqrt();
-        assert!(corr > 0.99, "correlation with kokoro-onnx's audio is only {corr:.4}");
     }
 }

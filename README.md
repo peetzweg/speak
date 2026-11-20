@@ -121,7 +121,9 @@ scripts/ab.sh                     # fp32 vs int8 samples and numbers into out/ab
 ```
 
 Tests that need the model use `$SPEAK_TEST_MODELS` (default `~/.local/share/speak/models`)
-read-only and skip when it is missing. `spikes/` holds the Go and Rust prototypes this grew from.
+read-only and skip when it is missing. `SPEAK_TEST_EXACT_AUDIO=1` also checks that the audio
+matches kokoro-onnx's to within a 16-bit step, which holds only on the machine that recorded the
+reference (an Apple M5 Pro). `spikes/` holds the Go and Rust prototypes this grew from.
 
 ## Credits
 
