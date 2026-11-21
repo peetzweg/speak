@@ -204,9 +204,8 @@ speak models rm kokoro-int8
 
 The first run downloads the default model into `$SPEAK_HOME/models` (default
 `~/.local/share/speak/models`) from pinned URLs. Each file is checked against a pinned SHA-256
-before it is used; an interrupted download resumes. Files already there (for example from an
-earlier Python install) are verified once and used as they are. Set `SPEAK_NO_DOWNLOAD=1` to
-never download.
+before it is used; an interrupted download resumes. Files already there are verified once and
+used as they are. Set `SPEAK_NO_DOWNLOAD=1` to never download.
 
 ## How it compares
 
@@ -231,15 +230,14 @@ espeak-ng, misaki's neural model guesses those.
 scripts/build-espeak.sh && export SPEAK_ESPEAK=$PWD/third_party/espeak-ng/bin/espeak-ng
 cargo test                        # unit, CLI and kokoro-onnx regression tests
 scripts/linux-docker.sh arm64     # the same on Linux, in Docker
-scripts/ab.sh                     # fp32 vs int8 samples and numbers into out/ab/
 scripts/export-g2p.py             # rebuild assets/g2p/*.onnx (pinned Python environment in its header)
 ```
 
 Tests that need the model use `$SPEAK_TEST_MODELS` (default `~/.local/share/speak/models`)
-read-only and skip when it is missing. `SPEAK_AUDIO=null` plays to nowhere in real time (the queue
-tests use it), and `SPEAK_DEBUG=1` also logs places in line and playback times. `SPEAK_TEST_EXACT_AUDIO=1` also checks that the audio
-matches kokoro-onnx's to within a 16-bit step, which holds only on the machine that recorded the
-reference (an Apple M5 Pro). `spikes/` holds the Go and Rust prototypes this grew from.
+read-only and skip when it is missing. `SPEAK_AUDIO=null` plays to nowhere in real time (the
+queue tests use it), and `SPEAK_DEBUG=1` also logs places in line and playback times.
+`SPEAK_TEST_EXACT_AUDIO=1` also checks that the audio matches kokoro-onnx's to within a 16-bit
+step, which holds only on the machine that recorded the reference (an Apple M5 Pro).
 
 ## Credits
 

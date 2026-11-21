@@ -1,4 +1,0 @@
-The quick brown fox jumps over the lazy dog, while the five boxing wizards jump quickly; meanwhile, a wizard's job is to vex chumps quickly in fog. Sphinx of black quartz, judge my vow!
-
-Second paragraph: How vexingly quick daft zebras jump, and how razorback-jumping frogs can level six piqued gymnasts. Pack my box with five dozen liquor jugs, then jackdaws love my big sphinx of quartz, and the job requires extra pluck and zeal from every young wage earner.
-Third line without a blank line before it, continuing for a while so that the phoneme string is comfortably longer than five hundred and ten characters, which forces kokoro-onnx to split it into batches at punctuation marks.

@@ -1,5 +1,5 @@
 KruAPI shipped v0.3.5 on Tuesday, and Anouk's game had 2,000 bots.
-Hello Philip. This is the Rust spike.
+Hello there. This is speak, written in Rust.
 Dr. Smith paid $1,234.56 for 3 items on 12/25/2024 at 10:30am.
 “Quoted text,” she said — then left… quietly.
 Wait!? Really?! No way...
